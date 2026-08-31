@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pghybrid"
-version = "0.1.0"
+version = "0.1.1"
 description = "Hybrid search on the Postgres you already have. Vector + full-text + Reciprocal Rank Fusion on plain pgvector, with no extensions to install."
 readme = "README.md"
 license = { text = "MIT" }

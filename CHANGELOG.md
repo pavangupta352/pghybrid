@@ -3,7 +3,23 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0], 2026-08-31
+## [0.1.1] - 2026-08-31
+
+### Security
+- `highlight` escapes the document before `ts_headline` runs. The default delimiters are
+  `<mark>`, so the result is meant to be rendered as HTML, which makes the surrounding
+  document text active markup. Postgres does not escape it, and its parser removes only
+  the tag shapes it recognises: `<script>alert(1)</script>` disappears, which makes the
+  whole thing look safe, while `<img src=x onerror=alert(1)>` and `<svg/onload=alert(1)>`
+  reach the caller intact, as does a bare `<` in ordinary text. Anyone rendering
+  `result.highlight` had an injection path through their own stored documents.
+  `Config.escape_highlight` (`escapeHighlight` in TypeScript) defaults to true, and can be
+  turned off for delimiters that are not HTML.
+
+  Only the three escaped characters change, so matching and mark placement are identical.
+  Nothing else changed, and upgrading needs no code change.
+
+## [0.1.0] - 2026-08-31
 
 First release.
 
