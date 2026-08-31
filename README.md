@@ -80,12 +80,13 @@ package is a supported way to use this project.
 pghybrid init --dsn $DATABASE_URL --table chunks     # inspects your table, writes the migration
 ```
 
+<!-- check:python -->
 ```python
 from pghybrid import Config, HybridSearch
 
 search = HybridSearch(
     Config(table="chunks", text_column="content", vector_column="embedding",
-           tsvector_column="fts", paramstyle="pyformat"),
+           tsvector_column="fts", extra_columns=["title"], paramstyle="pyformat"),
     execute=lambda sql, params: conn.execute(sql, params).fetchall(),
 )
 
@@ -93,12 +94,17 @@ for row in search.search("renewal notice period", embedding=query_vector, limit=
     print(row.score, row.get("title"))
 ```
 
+<!-- check:ts -->
 ```ts
-import { Config, HybridSearch } from "pghybrid";
+import { HybridSearch, type Config } from "pghybrid";
 
-const search = new HybridSearch(
-  { table: "chunks", textColumn: "content", vectorColumn: "embedding", tsvectorColumn: "fts" },
-  (sql, params) => pool.query(sql, params).then((r) => r.rows),
+const config: Config = {
+  table: "chunks", textColumn: "content", vectorColumn: "embedding",
+  tsvectorColumn: "fts", extraColumns: ["title"],
+};
+
+const search = new HybridSearch(config, (sql, params) =>
+  pool.query(sql, params).then((r) => r.rows),
 );
 
 const rows = await search.search("renewal notice period", { embedding, limit: 10 });

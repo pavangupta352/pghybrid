@@ -64,6 +64,13 @@ First release.
   80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
   in a search UI, with nothing to indicate anything was wrong.
 
+- Both README quickstarts were wrong, and are now run in CI rather than only read. The
+  Python one printed `None` for every title, because it asked for `row.get("title")` from
+  a config that never selected `title` — a new reader's first run looked like the library
+  was broken. The TypeScript one imported `Config`, a type-only export, as a value, which
+  compiles until the reader's tsconfig sets `verbatimModuleSyntax`, the setting TypeScript
+  5 recommends, and then fails on line 1. `scripts/check_readme_code.py` executes the
+  Python blocks and typechecks the TypeScript ones against the built package.
 - `explain(find=...)` names an exclusion as the reason a row is missing. It used to see a
   row that was #1 on both signals and absent from the result, conclude it had lost the
   fused ordering, and advise raising `candidate_limit` — a knob that can never bring back
