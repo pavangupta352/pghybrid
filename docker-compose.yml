@@ -11,6 +11,11 @@ services:
       POSTGRES_DB: pghybrid
     ports:
       - "55432:5432"
+    # Docker gives a container 64MB of /dev/shm by default, and a parallel HNSW build
+    # asks for far more than that. Without this, building an index on a table of any
+    # size fails with "could not resize shared memory segment ... No space left on
+    # device", which reads like a full disk and is not one.
+    shm_size: 1gb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d pghybrid"]
       interval: 2s

@@ -150,7 +150,9 @@ CREATE INDEX chunks_embedding_idx ON chunks USING hnsw (embedding vector_cosine_
 
 
 def main() -> int:
-    dsn = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
+    dsn = os.environ.get(
+        "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+    )
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         conn.execute(SCHEMA)

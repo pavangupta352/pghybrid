@@ -37,9 +37,9 @@ def _connect():
 
 def render_explain() -> str:
     """The decomposition table, exactly as `pghybrid explain` prints it."""
-    from pghybrid import Config, HybridSearch, explain
-
     from seed_demo import DEMO_QUERY, query_vector
+
+    from pghybrid import Config, HybridSearch, explain
 
     with _connect() as conn:
         search = HybridSearch(
@@ -66,9 +66,9 @@ def render_weights() -> str:
     coverage and the measurement is about scale alone. The demo query does not, and
     conflating the two effects is the mistake this table exists to prevent.
     """
-    from pghybrid import Config, HybridSearch, Weights, explain
-
     from seed_demo import query_vector
+
+    from pghybrid import Config, HybridSearch, Weights, explain
 
     query = "agreement party notice date term renewal period supplier customer"
     with _connect() as conn:

@@ -59,9 +59,10 @@ WIDTH = int(COL_X[3] + _COL_W + 10)
 
 def collect() -> dict:
     """Run the three searches that make the argument."""
-    from pghybrid import Config, HybridSearch
+    from seed_demo import DEMO_QUERY, PLANTED_TITLE, query_vector
+    from seed_demo import main as seed
 
-    from seed_demo import DEMO_QUERY, PLANTED_TITLE, main as seed, query_vector
+    from pghybrid import Config, HybridSearch
 
     seed()
     with psycopg.connect(DSN, row_factory=psycopg.rows.dict_row) as conn:
@@ -154,7 +155,7 @@ def build(data: dict) -> str:
         text(
             40,
             y,
-            f'the clause that answers it never contains the word "renewal"',
+            'the clause that answers it never contains the word "renewal"',
             fill=DIM,
             size=12,
             cls="",

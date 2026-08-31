@@ -336,6 +336,45 @@ arithmetic shown so you can defend the choice:
 
 It is read-only by default and will not write to your database without an explicit flag.
 
+## What the fusion costs
+
+```
+$ python scripts/benchmark.py
+
+  PostgreSQL 17.11 (Debian 17.11-1.pgdg12+2) on aarch64-unknown-linux-gnu, pgvector 0.8.6
+  100,000 rows x 384 dimensions, top 10
+  400 interleaved runs after 40 warmups, 5 rotating queries
+
+  mode                   p50       p95
+  ------------------------------------
+  vector only          2.39ms     3.11ms
+  keyword only         7.63ms    12.36ms
+  hybrid (both)        5.89ms     8.26ms
+
+  Adding the keyword signal costs +3.50ms at p50 (+147% over vector-only).
+```
+
+Reproduce it with [`scripts/benchmark.py`](scripts/benchmark.py) — that block is its
+output, on an M-series laptop against the Docker Postgres in this repo. Your database is
+not this one, so run it rather than trusting it.
+
+Three things worth knowing before you read those numbers:
+
+- **The corpus is the experiment.** Documents are drawn from a 5,000-word Zipfian
+  vocabulary and the query terms come from the tail, so each matches about 3% of rows —
+  the selectivity a real search term has. An earlier version of this script drew from a
+  36-word list, every term matched nearly every row, and keyword search "measured" 283ms.
+  That number described the fixture, not Postgres.
+- **Embeddings are random**, which is the worst case for an approximate index. Real
+  embeddings cluster and search faster, so treat the vector figure as an upper bound.
+- **Keyword-only is slower than hybrid, which is not a typo.** With one signal the planner
+  sorts the whole matched set (a 203kB quicksort over ~3,400 rows); with two, the full
+  outer join lets it hash the 50 vector candidates instead (11kB). Hybrid does strictly
+  more work and still comes out ahead, because it gets a better plan.
+
+The comparison that matters for a decision is the first and third rows: adding keyword
+search to an existing vector search costs a few milliseconds at this size.
+
 ## The generated SQL
 
 Nothing is hidden. `pghybrid` builds one statement, and you can always read it, copy it,

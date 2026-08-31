@@ -19,9 +19,7 @@ import sys
 import psycopg
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DSN = os.environ.get(
-    "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
-)
+DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
 
 # The demo corpus is built so the planted answer ranks second on both signals and
 # first on neither. If the standalone SQL returns it first, the fusion in these files
@@ -45,9 +43,7 @@ def main() -> int:
     # EXECUTE is a utility statement, so Postgres cannot infer parameter types for it
     # over the extended protocol. Binding client-side sends literals instead, which is
     # also closer to what someone pasting this into a SQL editor actually does.
-    with psycopg.connect(
-        DSN, autocommit=True, cursor_factory=psycopg.ClientCursor
-    ) as conn:
+    with psycopg.connect(DSN, autocommit=True, cursor_factory=psycopg.ClientCursor) as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
         # A table with no tsvector column and no indexes, so migration.sql has to do
@@ -87,9 +83,7 @@ def main() -> int:
         print(f"indexes present: {', '.join(sorted(indexes))}")
 
         search_sql = load("hybrid_search.sql").rstrip().rstrip(";")
-        conn.execute(
-            f"PREPARE standalone (vector, text, int, int) AS {search_sql}"
-        )
+        conn.execute(f"PREPARE standalone (vector, text, int, int) AS {search_sql}")
         cursor = conn.execute(
             "EXECUTE standalone(%s, %s, %s, %s)", (QUERY_VECTOR, DEMO_QUERY, 50, 5)
         )
