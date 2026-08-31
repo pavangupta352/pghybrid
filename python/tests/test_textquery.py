@@ -202,72 +202,122 @@ def test_all_mode_makes_exactly_one_parser_call_with_the_whole_string(
     assert params[0] == "renewal notice -pricing"
 
 
-def test_any_mode_does_not_rewrite_and_not_into_or_not(make_config: Any) -> None:
-    """The exclusion has to stay conjunctive, or it stops excluding anything.
+def test_an_exclusion_constrains_both_signals_not_just_the_keyword_one(make_config: Any) -> None:
+    """A leading dash is a statement about the answer, so both halves have to honour it.
 
-    The tempting implementation of ANY is to parse the whole string once and swap the
-    operators inside the resulting tsquery. That is wrong in a way that is easy to miss:
-    ``'a' & !'b'`` becomes ``'a' | !'b'``, which is true for every document that merely
-    lacks b — so a query of "renewal -pricing" matches the entire corpus except the
-    pricing pages, ranked by nothing.
+    The tempting implementation puts the exclusion in the tsquery and stops, because that
+    is where the parser already understands it. The vector half then never hears about it
+    and happily returns the excluded rows: they drop out of the text candidates, so they
+    arrive with a vector rank and no text rank, and RRF pays the top vector hit 1/(k+1) —
+    the largest single contribution it can award. The row someone typed "-pricing" to be
+    rid of comes back near the top, ranked by half a search.
 
-    So the OR is built from separate parser calls, the positives are parenthesised as a
-    group, and each exclusion is attached with && rather than ||.
+    So the predicate is rendered once and applied inside both candidate CTEs. Inside,
+    because filtering the fused output would return fewer rows than the caller asked for.
     """
     cfg = make_config(text_match="any")
-    sql, params = build_search_sql(cfg, embedding=None, text="renewal notice -pricing", limit=5)
-    tsq = tsquery_expression(sql)
+    sql, params = build_search_sql(
+        cfg, embedding=[0.1] * 8, text="renewal notice -pricing", limit=5
+    )
+    vector_cte = sql[sql.index("vector_candidates AS (") : sql.index("text_query AS (")]
+    text_cte = sql[sql.index("text_candidates AS (") : sql.index("scored AS (")]
 
-    assert " && !!" in tsq
-    assert " || !!" not in tsq
-    # The exclusion applies to the whole disjunction, not just the last positive term.
-    assert tsq.startswith("(")
-    assert tsq.index(")") < tsq.index("&&")
+    exclusion = "NOT coalesce(\"content_tsv\" @@ websearch_to_tsquery('english', $2), false)"
+    assert exclusion in vector_cte, "the vector half can still return the excluded rows"
+    assert exclusion in text_cte
+
+    # Inside the candidate subquery and before its LIMIT, not wrapped around the fusion
+    # afterwards: excluding rows after the cut-off returns fewer than the caller asked for.
+    assert vector_cte.index(exclusion) < vector_cte.index("LIMIT")
+
+    # The tsquery itself carries only what the user asked to find.
+    assert "!!" not in tsquery_expression(sql)
     # Negation is an operator in the statement, never a character left inside a bound
-    # value: the naive form would hand the raw string to a single parser call.
-    assert params[:3] == ["renewal", "notice", "pricing"]
+    # value: the naive form hands the raw string to a single parser call.
+    assert "pricing" in params
+    assert "-pricing" not in params
     assert "renewal notice -pricing" not in params
+
+
+def test_every_exclusion_is_applied(make_config: Any) -> None:
+    cfg = make_config(text_match="any")
+    sql, params = build_search_sql(
+        cfg, embedding=[0.1] * 8, text="renewal -pricing -legacy", limit=5
+    )
+    vector_cte = sql[sql.index("vector_candidates AS (") : sql.index("text_query AS (")]
+    assert "$2) || websearch_to_tsquery('english', $3)" in vector_cte
+    assert params[1:4] == ["pricing", "legacy", 50]
+
+
+def test_the_exclusion_is_rendered_once_and_referenced_twice(make_config: Any) -> None:
+    """Numbered styles reuse the placeholder; positional styles have to repeat the value.
+
+    The predicate appears in two CTEs, so this is the one place in the statement where a
+    single logical value is genuinely referenced twice. Both paramstyles have to be right.
+    """
+    cfg = make_config(text_match="any")
+    numeric, params = build_search_sql(cfg, embedding=[0.1] * 8, text="renewal -pricing", limit=5)
+    assert numeric.count("websebogus") == 0
+    assert numeric.count("$2") == 2, "the same placeholder should serve both CTEs"
+    assert params.count("pricing") == 1
+
+    pyformat, params = build_search_sql(
+        make_config(text_match="any", paramstyle="pyformat"),
+        embedding=[0.1] * 8,
+        text="renewal -pricing",
+        limit=5,
+    )
+    assert params.count("pricing") == 2, "pyformat cannot reuse a placeholder"
+
+
+def test_a_null_tsvector_is_not_excluded_by_a_term_it_cannot_contain(make_config: Any) -> None:
+    """``NULL @@ q`` is NULL and ``NOT NULL`` is NULL, which excludes the row.
+
+    A row with no tsvector contains no words, so it contains no excluded word either. It
+    has to survive the predicate, or a partially-populated column silently deletes rows
+    from the vector half of every query carrying an exclusion.
+    """
+    cfg = make_config(text_match="any")
+    sql, _ = build_search_sql(cfg, embedding=[0.1] * 8, text="renewal -pricing", limit=5)
+    assert "NOT coalesce(" in sql
+    assert ", false)" in sql
+
+
+def test_a_query_of_only_exclusions_has_no_keyword_signal(make_config: Any) -> None:
+    """There is nothing to rank by, so the text CTE is dropped rather than inverted.
+
+    Handing "-pricing" to the parser yields ``!'pricing'``, which matches almost the whole
+    table. ts_rank_cd scores a pure negation identically for every row, so the keyword
+    half would contribute an arbitrary order — at full weight — that reshuffles the vector
+    results for no reason. The exclusion still applies to what remains.
+    """
+    cfg = make_config(text_match="any")
+    sql, params = build_search_sql(cfg, embedding=[0.1] * 8, text="-pricing", limit=5)
+    assert "text_candidates" not in sql
+    assert "NOT coalesce(" in sql
+    assert params[1] == "pricing"
     assert "-pricing" not in params
 
 
-def test_any_mode_attaches_every_exclusion(make_config: Any) -> None:
+def test_only_exclusions_and_no_embedding_says_what_is_missing(make_config: Any) -> None:
     cfg = make_config(text_match="any")
-    sql, params = build_search_sql(cfg, embedding=None, text="renewal -pricing -legacy", limit=5)
-    tsq = tsquery_expression(sql)
-    assert tsq.count("&& !!") == 2
-    assert params[:3] == ["renewal", "pricing", "legacy"]
+    with pytest.raises(ValueError, match="only excludes terms"):
+        build_search_sql(cfg, embedding=None, text="-pricing", limit=5)
 
 
-def test_a_single_positive_with_an_exclusion_needs_no_group(make_config: Any) -> None:
-    cfg = make_config(text_match="any")
-    sql, _ = build_search_sql(cfg, embedding=None, text="renewal -pricing", limit=5)
-    tsq = tsquery_expression(sql)
-    assert tsq == ("websearch_to_tsquery('english', $1) && !!websearch_to_tsquery('english', $2)")
+def test_a_noise_only_query_fails_loudly_rather_than_returning_nothing(make_config: Any) -> None:
+    """ "and or" has no searchable words, and an empty result would look like relevance.
 
-
-def test_a_query_of_only_exclusions_falls_back_to_the_parser(make_config: Any) -> None:
-    """There is nothing to OR, and inventing a match-everything query would be worse.
-
-    A tsquery of pure negation matches almost the whole table, which would flood the
-    fusion with candidates that no signal actually ranked. Handing the raw string to
-    websearch_to_tsquery keeps the behaviour the user's syntax already implies.
+    Same choice _normalise_text makes for a blank search box: say what is wrong, because
+    a caller handed [] goes looking in the ranking rather than at the query.
     """
     cfg = make_config(text_match="any")
-    sql, params = build_search_sql(cfg, embedding=None, text="-pricing", limit=5)
-    assert tsquery_expression(sql) == "websearch_to_tsquery('english', $1)"
-    assert params[0] == "-pricing"
+    with pytest.raises(ValueError, match="no searchable terms"):
+        build_search_sql(cfg, embedding=None, text="and or", limit=5)
 
-
-def test_a_noise_only_query_falls_back_to_the_parser(make_config: Any) -> None:
-    """websearch_to_tsquery reads "and or" as an empty tsquery, which matches nothing.
-
-    So the text signal contributes no candidates and the search is vector-only, which is
-    the honest answer for a query with no searchable words in it.
-    """
-    cfg = make_config(text_match="any")
-    sql, params = build_search_sql(cfg, embedding=None, text="and or", limit=5)
-    assert tsquery_expression(sql) == "websearch_to_tsquery('english', $1)"
-    assert params[0] == "and or"
+    # With an embedding there is still a search to run; it is simply vector-only.
+    sql, _ = build_search_sql(cfg, embedding=[0.1] * 8, text="and or", limit=5)
+    assert "text_candidates" not in sql
 
 
 def test_the_configured_parser_and_language_are_used(make_config: Any) -> None:

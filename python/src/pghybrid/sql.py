@@ -154,6 +154,10 @@ def _tsquery_expr(cfg: Config, text: str, params: Params) -> str:
     ``all`` hands the whole string to one parser, giving AND semantics. ``any``
     combines one parser call per term with ``||``, so the keyword signal still
     produces a ranked candidate list when no single document contains every word.
+
+    Only the positive terms appear here. Exclusions are not part of the keyword signal
+    — they constrain the whole answer — so they are rendered by :func:`_exclusion_sql`
+    and applied to both candidate sets.
     """
     parser = cfg.query_parser
     language = cfg.language
@@ -162,22 +166,57 @@ def _tsquery_expr(cfg: Config, text: str, params: Params) -> str:
         return f"{parser}('{language}', {params.add(value)})"
 
     if cfg.text_match == "all":
+        # The whole string, negations included: that is what "hand it to one parser"
+        # means, and websearch reads a leading dash the same way this module does. The
+        # exclusion predicate covers the vector half separately, so the two agree.
         return call(text)
 
-    parsed = parse_query(text)
-    if not parsed.positive:
-        # Nothing to OR — a query of only exclusions, or only noise. Fall back to the
-        # parser's own reading of the string rather than inventing a match-everything
-        # query, which would flood the fusion with irrelevant candidates.
-        return call(text)
-
-    positive = parsed.positive[: cfg.max_query_terms]
+    positive = parse_query(text).positive[: cfg.max_query_terms]
+    # Callers must not reach here without a positive term; a query of only exclusions
+    # has no keyword signal to rank by. build_search_sql drops the text CTE instead.
     expression = " || ".join(call(term) for term in positive)
     if len(positive) > 1:
         expression = f"({expression})"
-    for term in parsed.negative[: cfg.max_query_terms]:
-        expression = f"{expression} && !!{call(term)}"
     return expression
+
+
+def _show_query(text: str) -> str:
+    """Quote a query for an error message the same way the TypeScript package does.
+
+    ``repr`` and ``JSON.stringify`` disagree — quote character, and how they escape — so
+    a message built from either drifts between the two packages for the same mistake.
+    The parity check compares these messages verbatim, so the rule is written out rather
+    than borrowed from a language builtin.
+    """
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _exclusion_sql(cfg: Config, negatives: list[str], params: Params) -> str:
+    """The predicate that removes an excluded term from *both* candidate sets.
+
+    A leading ``-`` is a statement about the answer, not about one half of the search.
+    Applying it only to the keyword query — which is what falls out of building the
+    tsquery and stopping there — leaves the vector side free to return the very rows the
+    user asked not to see. It demotes them rather than removing them, and demotion is
+    weak: a row excluded from the text candidates still collects the largest vector
+    contribution RRF can award, ``1/(k+1)``, so the document someone typed ``-pricing``
+    to be rid of can still come back first.
+
+    So the exclusion is rendered once and applied inside both candidate CTEs. Inside,
+    not after: filtering the fused output would return fewer rows than the caller asked
+    for, which is the same mistake as applying filters after fusion.
+
+    ``coalesce(..., false)`` matters. ``NULL @@ query`` is NULL and ``NOT NULL`` is NULL,
+    so without it a row whose tsvector is NULL would be dropped from the vector
+    candidates by a term it could not possibly contain.
+    """
+    tsv = _tsvector_expr(cfg)
+    terms = " || ".join(
+        f"{cfg.query_parser}('{cfg.language}', {params.add(term)})" for term in negatives
+    )
+    if len(negatives) > 1:
+        terms = f"({terms})"
+    return f" AND NOT coalesce({tsv} @@ {terms}, false)"
 
 
 def _filter_sql(cfg: Config, filters: dict[str, Any] | None, params: Params) -> str:
@@ -270,15 +309,45 @@ def build_search_sql(
     table = quote_ident(cfg.table)
     id_col = quote_ident(cfg.id_column)
 
+    # The query is split before either CTE is built, because both halves need the
+    # answer. Exclusions become a predicate shared by the two candidate sets, and the
+    # positive terms are what decides whether there is a keyword signal at all.
+    parsed = parse_query(text) if text is not None else None
+    excluded = parsed.negative[: cfg.max_query_terms] if parsed else []
+    exclusion = _exclusion_sql(cfg, excluded, params) if excluded else ""
+
     ctes: list[str] = []
     have_vector = embedding is not None
-    have_text = text is not None
+    # "-pricing" on its own is not a search, it is a filter. Ranking every document that
+    # merely lacks a word puts noise into the fusion at full weight: ts_rank_cd scores a
+    # pure negation identically for every row, so the keyword half contributes an
+    # arbitrary order that reshuffles the vector results for no reason.
+    have_text = parsed is not None and bool(parsed.positive)
+
+    if not have_vector and not have_text:
+        # Failing here rather than returning [] is deliberate, and the same choice
+        # _normalise_text makes for a blank box: an empty result reads as a relevance
+        # problem, and the caller would go looking in the wrong place.
+        if text is not None:
+            if excluded:
+                raise ValueError(
+                    f"{_show_query(text)} only excludes terms, so there is nothing to "
+                    "rank. Add a term to search for, or pass an embedding and let the "
+                    "exclusion filter it."
+                )
+            raise ValueError(
+                f"{_show_query(text)} has no searchable terms in it, so there is nothing "
+                "to rank. Pass an embedding, or a query with a word to search for."
+            )
+        raise ValueError("at least one of embedding or text must be provided")
 
     if embedding is not None:
         vec = params.add_cast(_format_vector(embedding), cfg.vector_type)
         distance = _distance_expr(cfg, vec)
         where = f"WHERE {quote_ident(cfg.vector_column)} IS NOT NULL"
         where += _filter_sql(cfg, filters, params)
+        # Without this the vector half happily returns the rows the user excluded.
+        where += exclusion
         # The window sits outside the LIMIT on purpose. A rank() in the same SELECT as
         # ORDER BY ... LIMIT has to see every matching row before the limit can apply, so
         # its cost scales with the number of matches rather than with the limit. Ranking
@@ -307,12 +376,14 @@ def build_search_sql(
             ")"
         )
 
-    if text is not None:
+    if have_text:
+        assert text is not None
         tsquery = _tsquery_expr(cfg, text, params)
         tsv = _tsvector_expr(cfg)
         rank_expr = f"{cfg.rank_function}({tsv}, tsq)"
         where = "WHERE " + f"{tsv} @@ tsq"
         where += _filter_sql(cfg, filters, params)
+        where += exclusion
         # Same shape as the vector side, and for the same two reasons: the window runs
         # over the fifty rows that survive rather than every match, and the cut-off is
         # deterministic. See the comment above vector_candidates.

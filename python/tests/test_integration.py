@@ -158,6 +158,63 @@ def test_negation_is_not_a_naive_operator_rewrite(search):
     assert excluded, "excluding one term should not empty the result set"
 
 
+def test_an_exclusion_holds_when_the_vector_signal_is_running(connection, search):
+    """The case above passes with the exclusion in the tsquery alone. This one does not.
+
+    Keyword-only search never exposed the bug, because the tsquery is exactly where a
+    parser already understands a leading dash. Turn the vector half on and the excluded
+    row comes back: it is missing from the text candidates, so it arrives with a vector
+    rank and no text rank, and RRF pays the best vector hit 1/(k+1) — the largest single
+    contribution available. It ranked fourth of five here.
+
+    The embedding is the excluded row's own, which is the honest version of the test: a
+    user reaches for "-pricing" precisely when pricing pages are what the vector half
+    keeps returning.
+    """
+    row = connection.execute(
+        "SELECT embedding FROM chunks WHERE title = 'Renewal pricing'"
+    ).fetchone()
+    its_own_vector = [float(x) for x in str(row["embedding"]).strip("[]").split(",")]
+
+    without = titles(search.search(DEMO_QUERY, embedding=its_own_vector, limit=5))
+    assert without[0] == "Renewal pricing", "the corpus no longer sets this test up"
+
+    with_exclusion = titles(
+        search.search(f"{DEMO_QUERY} -pricing", embedding=its_own_vector, limit=5)
+    )
+    assert "Renewal pricing" not in with_exclusion, (
+        "the excluded row came back on the vector signal, so the exclusion is not being "
+        "applied inside both candidate CTEs"
+    )
+    assert len(with_exclusion) == 5, "excluding one row should not shrink the result set"
+
+
+def test_a_query_of_only_exclusions_is_vector_search_with_a_filter(connection, search):
+    """Not an inverted corpus ranked by nothing.
+
+    ``!'pricing'`` matches almost every row, and ts_rank_cd scores a pure negation
+    identically for all of them, so fusing it in would reorder the vector results by an
+    arbitrary tiebreak. The text signal is dropped instead and the exclusion still holds.
+    """
+    row = connection.execute(
+        "SELECT embedding FROM chunks WHERE title = 'Renewal pricing'"
+    ).fetchone()
+    its_own_vector = [float(x) for x in str(row["embedding"]).strip("[]").split(",")]
+
+    rows = search.search("-pricing", embedding=its_own_vector, limit=5)
+    assert "Renewal pricing" not in titles(rows)
+    assert all(r.text_rank is None for r in rows), "the keyword half should not have run"
+    # The output order is the vector order, untouched. (rank() shares a number across
+    # ties and skips the next, so the sequence is ascending rather than 1..5.)
+    ranks = [r.vector_rank for r in rows]
+    assert ranks[0] == 1 and ranks == sorted(ranks)
+
+
+def test_an_exclusion_with_nothing_to_rank_says_so(search):
+    with pytest.raises(ValueError, match="only excludes terms"):
+        search.search("-pricing", limit=5)
+
+
 # ---------------------------------------------------------------------- correctness
 
 

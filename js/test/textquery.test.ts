@@ -204,72 +204,114 @@ describe("the tsquery the builder generates", () => {
     expect(params[0]).toBe("renewal notice -pricing");
   });
 
-  it("does not rewrite AND NOT into OR NOT", () => {
-    // The exclusion has to stay conjunctive, or it stops excluding anything. The
-    // tempting implementation of ANY is to parse the whole string once and swap the
-    // operators inside the resulting tsquery. That is wrong in a way that is easy to
-    // miss: 'a' & !'b' becomes 'a' | !'b', which is true for every document that
-    // merely lacks b — so "renewal -pricing" matches the entire corpus except the
-    // pricing pages, ranked by nothing.
+  it("constrains both signals with an exclusion, not just the keyword one", () => {
+    // A leading dash is a statement about the answer, so both halves have to honour it.
+    // The tempting implementation puts the exclusion in the tsquery and stops, because
+    // that is where the parser already understands it. The vector half then never hears
+    // about it and happily returns the excluded rows: they drop out of the text
+    // candidates, so they arrive with a vector rank and no text rank, and RRF pays the
+    // best vector hit 1/(k+1) — the largest single contribution it can award.
     const { sql, params } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+      embedding: [0.1, 0.2],
       text: "renewal notice -pricing",
       limit: 5,
     });
-    const tsq = tsqueryExpression(sql);
+    const vectorCte = sql.slice(sql.indexOf("vector_candidates AS ("), sql.indexOf("text_query AS ("));
+    const textCte = sql.slice(sql.indexOf("text_candidates AS ("), sql.indexOf("scored AS ("));
 
-    expect(tsq).toContain(" && !!");
-    expect(tsq).not.toContain(" || !!");
-    // The exclusion applies to the whole disjunction, not just the last positive term.
-    expect(tsq.startsWith("(")).toBe(true);
-    expect(tsq.indexOf(")")).toBeLessThan(tsq.indexOf("&&"));
+    const exclusion = `NOT coalesce("content_tsv" @@ websearch_to_tsquery('english', $2), false)`;
+    expect(vectorCte, "the vector half can still return the excluded rows").toContain(exclusion);
+    expect(textCte).toContain(exclusion);
+    // Inside the candidate subquery and before its LIMIT, not wrapped around the fusion
+    // afterwards: excluding rows after the cut-off returns fewer than the caller asked for.
+    expect(vectorCte.indexOf(exclusion)).toBeLessThan(vectorCte.indexOf("LIMIT"));
+
+    // The tsquery itself carries only what the user asked to find.
+    expect(tsqueryExpression(sql)).not.toContain("!!");
     // Negation is an operator in the statement, never a character left inside a bound
     // value: the naive form would hand the raw string to a single parser call.
-    expect(params.slice(0, 3)).toEqual(["renewal", "notice", "pricing"]);
+    expect(params).toContain("pricing");
     expect(params).not.toContain("renewal notice -pricing");
     expect(params).not.toContain("-pricing");
   });
 
-  it("attaches every exclusion", () => {
+  it("applies every exclusion", () => {
     const { sql, params } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+      embedding: [0.1, 0.2],
       text: "renewal -pricing -legacy",
       limit: 5,
     });
-    const tsq = tsqueryExpression(sql);
-    expect(tsq.split("&& !!").length - 1).toBe(2);
-    expect(params.slice(0, 3)).toEqual(["renewal", "pricing", "legacy"]);
+    const vectorCte = sql.slice(sql.indexOf("vector_candidates AS ("), sql.indexOf("text_query AS ("));
+    expect(vectorCte).toContain("$2) || websearch_to_tsquery('english', $3)");
+    expect(params.slice(1, 4)).toEqual(["pricing", "legacy", 50]);
   });
 
-  it("needs no group for a single positive with an exclusion", () => {
-    const { sql } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+  it("renders the exclusion once and references it twice", () => {
+    // The predicate appears in two CTEs, so this is the one place in the statement where
+    // a single logical value is genuinely referenced twice. Both paramstyles have to be
+    // right: numbered styles reuse the placeholder, positional styles repeat the value.
+    const numeric = buildSearchSql(makeConfig({ textMatch: "any" }), {
+      embedding: [0.1, 0.2],
       text: "renewal -pricing",
       limit: 5,
     });
-    expect(tsqueryExpression(sql)).toBe(
-      "websearch_to_tsquery('english', $1) && !!websearch_to_tsquery('english', $2)",
-    );
+    expect(numeric.sql.split("$2").length - 1).toBe(2);
+    expect(numeric.params.filter((v) => v === "pricing")).toHaveLength(1);
+
+    const pyformat = buildSearchSql(makeConfig({ textMatch: "any", paramStyle: "pyformat" }), {
+      embedding: [0.1, 0.2],
+      text: "renewal -pricing",
+      limit: 5,
+    });
+    expect(pyformat.params.filter((v) => v === "pricing")).toHaveLength(2);
   });
 
-  it("falls back to the parser for a query of only exclusions", () => {
-    // A tsquery of pure negation matches almost the whole table, which would flood the
-    // fusion with candidates that no signal actually ranked.
+  it("does not exclude a null tsvector by a term it cannot contain", () => {
+    // NULL @@ q is NULL and NOT NULL is NULL, which would drop the row. A row with no
+    // tsvector contains no words, so it contains no excluded word either.
+    const { sql } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+      embedding: [0.1, 0.2],
+      text: "renewal -pricing",
+      limit: 5,
+    });
+    expect(sql).toContain("NOT coalesce(");
+    expect(sql).toContain(", false)");
+  });
+
+  it("has no keyword signal for a query of only exclusions", () => {
+    // Handing "-pricing" to the parser yields !'pricing', which matches almost the whole
+    // table. ts_rank_cd scores a pure negation identically for every row, so the keyword
+    // half would contribute an arbitrary order — at full weight — that reshuffles the
+    // vector results for no reason. The exclusion still applies to what remains.
     const { sql, params } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+      embedding: [0.1, 0.2],
       text: "-pricing",
       limit: 5,
     });
-    expect(tsqueryExpression(sql)).toBe("websearch_to_tsquery('english', $1)");
-    expect(params[0]).toBe("-pricing");
+    expect(sql).not.toContain("text_candidates");
+    expect(sql).toContain("NOT coalesce(");
+    expect(params[1]).toBe("pricing");
+    expect(params).not.toContain("-pricing");
   });
 
-  it("falls back to the parser for a noise-only query", () => {
-    // websearch_to_tsquery reads "and or" as an empty tsquery, which matches nothing.
-    // So the text signal contributes no candidates and the search is vector-only,
-    // which is the honest answer for a query with no searchable words in it.
-    const { sql, params } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+  it("says what is missing when there is nothing to rank", () => {
+    expect(() =>
+      buildSearchSql(makeConfig({ textMatch: "any" }), { text: "-pricing", limit: 5 }),
+    ).toThrow(/only excludes terms/);
+
+    // Same choice normaliseText makes for a blank search box: say what is wrong, because
+    // a caller handed [] goes looking in the ranking rather than at the query.
+    expect(() =>
+      buildSearchSql(makeConfig({ textMatch: "any" }), { text: "and or", limit: 5 }),
+    ).toThrow(/no searchable terms/);
+
+    // With an embedding there is still a search to run; it is simply vector-only.
+    const { sql } = buildSearchSql(makeConfig({ textMatch: "any" }), {
+      embedding: [0.1, 0.2],
       text: "and or",
       limit: 5,
     });
-    expect(tsqueryExpression(sql)).toBe("websearch_to_tsquery('english', $1)");
-    expect(params[0]).toBe("and or");
+    expect(sql).not.toContain("text_candidates");
   });
 
   it("uses the configured parser and language", () => {

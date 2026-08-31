@@ -190,32 +190,72 @@ function tsvectorExpr(cfg: ResolvedConfig): string {
  * `all` hands the whole string to one parser, giving AND semantics. `any` combines one
  * parser call per term with `||`, so the keyword signal still produces a ranked
  * candidate list when no single document contains every word.
+ *
+ * Only the positive terms appear here. Exclusions are not part of the keyword signal —
+ * they constrain the whole answer — so they are rendered by `exclusionSql` and applied
+ * to both candidate sets.
  */
 function tsqueryExpr(cfg: ResolvedConfig, text: string, params: Params): string {
   const call = (value: string): string =>
     `${cfg.queryParser}('${cfg.language}', ${params.add(value)})`;
 
   if (cfg.textMatch === "all") {
+    // The whole string, negations included: that is what "hand it to one parser" means,
+    // and websearch reads a leading dash the same way this module does. The exclusion
+    // predicate covers the vector half separately, so the two agree.
     return call(text);
   }
 
-  const parsed = parseQuery(text);
-  if (parsed.positive.length === 0) {
-    // Nothing to OR — a query of only exclusions, or only noise. Fall back to the
-    // parser's own reading of the string rather than inventing a match-everything
-    // query, which would flood the fusion with irrelevant candidates.
-    return call(text);
-  }
-
-  const positive = parsed.positive.slice(0, cfg.maxQueryTerms);
+  // Callers must not reach here without a positive term; a query of only exclusions has
+  // no keyword signal to rank by. buildSearchSql drops the text CTE instead.
+  const positive = parseQuery(text).positive.slice(0, cfg.maxQueryTerms);
   let expression = positive.map(call).join(" || ");
   if (positive.length > 1) {
     expression = `(${expression})`;
   }
-  for (const term of parsed.negative.slice(0, cfg.maxQueryTerms)) {
-    expression = `${expression} && !!${call(term)}`;
-  }
   return expression;
+}
+
+/**
+ * The predicate that removes an excluded term from *both* candidate sets.
+ *
+ * A leading `-` is a statement about the answer, not about one half of the search.
+ * Applying it only to the keyword query — which is what falls out of building the
+ * tsquery and stopping there — leaves the vector side free to return the very rows the
+ * user asked not to see. It demotes them rather than removing them, and demotion is
+ * weak: a row excluded from the text candidates still collects the largest vector
+ * contribution RRF can award, `1/(k+1)`, so the document someone typed `-pricing` to be
+ * rid of can still come back first.
+ *
+ * So the exclusion is rendered once and applied inside both candidate CTEs. Inside, not
+ * after: filtering the fused output would return fewer rows than the caller asked for,
+ * which is the same mistake as applying filters after fusion.
+ *
+ * `coalesce(..., false)` matters. `NULL @@ query` is NULL and `NOT NULL` is NULL, so
+ * without it a row whose tsvector is NULL would be dropped from the vector candidates by
+ * a term it could not possibly contain.
+ */
+/**
+ * Quote a query for an error message the same way the Python package does.
+ *
+ * `repr` and `JSON.stringify` disagree — quote character, and how they escape — so a
+ * message built from either drifts between the two packages for the same mistake. The
+ * parity check compares these messages verbatim, so the rule is written out rather than
+ * borrowed from a language builtin.
+ */
+function showQuery(text: string): string {
+  return "'" + text.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+}
+
+function exclusionSql(cfg: ResolvedConfig, negatives: string[], params: Params): string {
+  const tsv = tsvectorExpr(cfg);
+  let terms = negatives
+    .map((term) => `${cfg.queryParser}('${cfg.language}', ${params.add(term)})`)
+    .join(" || ");
+  if (negatives.length > 1) {
+    terms = `(${terms})`;
+  }
+  return ` AND NOT coalesce(${tsv} @@ ${terms}, false)`;
 }
 
 /** Anything a caller may filter on. Arrays and Sets become `= ANY($n)`. */
@@ -315,9 +355,6 @@ export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuer
   const nearMiss = options.nearMiss ?? 0;
   const highlight = options.highlight ?? false;
 
-  if (embedding === null && text === null) {
-    throw new Error("at least one of embedding or text must be provided");
-  }
   if (limit < 1) {
     throw new Error("limit must be >= 1");
   }
@@ -339,16 +376,48 @@ export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuer
   const table = quoteIdent(cfg.table);
   const idCol = quoteIdent(cfg.idColumn);
 
+  // The query is split before either CTE is built, because both halves need the answer.
+  // Exclusions become a predicate shared by the two candidate sets, and the positive
+  // terms are what decides whether there is a keyword signal at all.
+  const parsed = text !== null ? parseQuery(text) : null;
+  const excluded = parsed ? parsed.negative.slice(0, cfg.maxQueryTerms) : [];
+  const exclusion = excluded.length > 0 ? exclusionSql(cfg, excluded, params) : "";
+
   const ctes: string[] = [];
   const haveVector = embedding !== null;
-  const haveText = text !== null;
+  // "-pricing" on its own is not a search, it is a filter. Ranking every document that
+  // merely lacks a word puts noise into the fusion at full weight: ts_rank_cd scores a
+  // pure negation identically for every row, so the keyword half contributes an
+  // arbitrary order that reshuffles the vector results for no reason.
+  const haveText = parsed !== null && parsed.positive.length > 0;
+
+  if (!haveVector && !haveText) {
+    // Failing here rather than returning [] is deliberate, and the same choice
+    // normaliseText makes for a blank box: an empty result reads as a relevance problem,
+    // and the caller would go looking in the wrong place.
+    if (excluded.length > 0) {
+      throw new Error(
+        `${showQuery(text as string)} only excludes terms, so there is nothing to rank. ` +
+          "Add a term to search for, or pass an embedding and let the exclusion filter it.",
+      );
+    }
+    if (text !== null) {
+      throw new Error(
+        `${showQuery(text)} has no searchable terms in it, so there is nothing to rank. ` +
+          "Pass an embedding, or a query with a word to search for.",
+      );
+    }
+    throw new Error("at least one of embedding or text must be provided");
+  }
 
   if (haveVector) {
     const vec = params.addCast(formatVector(embedding), cfg.vectorType);
     const distance = distanceExpr(cfg, vec);
     const where =
       `WHERE ${quoteIdent(cfg.vectorColumn)} IS NOT NULL` +
-      filterSql(cfg, options.filters, params);
+      filterSql(cfg, options.filters, params) +
+      // Without this the vector half happily returns the rows the user excluded.
+      exclusion;
     ctes.push(
       // The window sits outside the LIMIT on purpose. A rank() in the same SELECT as
       // ORDER BY ... LIMIT has to see every matching row before the limit can apply, so
@@ -370,11 +439,13 @@ export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuer
     );
   }
 
-  if (haveText) {
+  // The `text !== null` is redundant with haveText and is there to narrow the type; a
+  // boolean cannot do that on its own.
+  if (haveText && text !== null) {
     const tsquery = tsqueryExpr(cfg, text, params);
     const tsv = tsvectorExpr(cfg);
     const rankExpr = `${cfg.rankFunction}(${tsv}, tsq)`;
-    const where = `WHERE ${tsv} @@ tsq` + filterSql(cfg, options.filters, params);
+    const where = `WHERE ${tsv} @@ tsq` + filterSql(cfg, options.filters, params) + exclusion;
     ctes.push(
       "text_query AS (\n" +
         `    SELECT ${tsquery} AS tsq\n` +

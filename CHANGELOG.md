@@ -28,6 +28,9 @@ First release.
   scores.
 - Standalone SQL in `sql/`, usable without installing the package.
 - Python and TypeScript packages, generating identical SQL from a shared golden snapshot.
+  The parity check compares 51 fixtures byte for byte, and the rejections too: an input
+  one package builds a statement for and the other refuses is invisible to a check that
+  only compares SQL.
 
 - Driver adapters that also pin the placeholder style: `for_psycopg`, `for_sqlalchemy`,
   `for_asyncpg`, `for_django`; `forPg`, `forPostgresJs`, `forDrizzle`, `forKysely`.
@@ -35,6 +38,20 @@ First release.
   was removed for new projects, and pgai after it was archived.
 - A LangChain retriever, as a tested example rather than a dependency.
 - `py.typed`, so a consumer's type checker sees the annotations.
+
+### Fixed
+- An exclusion (`-term`) now constrains **both** signals. It was applied only to the
+  tsquery, so the vector half still returned the excluded rows: they left the text
+  candidates, arrived with a vector rank and no text rank, and RRF paid the best vector
+  hit `1/(k+1)` — the largest single contribution available. A row you typed `-pricing`
+  to be rid of could come back first. Found before release; the keyword-only test that
+  covered it passed throughout, because the tsquery is exactly where the exclusion was
+  already correct.
+- A query of only exclusions no longer inverts the corpus. `!'pricing'` matches almost
+  every row and `ts_rank_cd` scores a pure negation identically for all of them, so the
+  keyword half was contributing an arbitrary order at full weight. It is dropped
+  instead, the exclusion still applies, and with no embedding to fall back on the call
+  says what is missing rather than returning a list ranked by nothing.
 
 ### Security
 - `language`, `query_parser` and `rank_function` are validated. They are interpolated

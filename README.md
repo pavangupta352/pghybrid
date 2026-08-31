@@ -221,7 +221,21 @@ Config(..., text_match="all")   # Postgres' native AND, if you want it
 The naive way to do this — rewriting `&` into `|` inside a parsed tsquery — is wrong, and
 `pghybrid` does not do it: `'a' & !'b'` becomes `'a' | !'b'`, which matches every document
 that merely lacks `b`. Terms are tokenised and OR-combined individually, so quoted
-`"phrases"` and `-negation` keep working.
+`"phrases"` keep working.
+
+`-negation` is not part of the tsquery at all. An exclusion is a statement about the
+answer, not about one half of it, so it becomes a predicate applied inside **both**
+candidate CTEs. Putting it only in the tsquery — which is where the parser already
+understands a leading dash — leaves the vector half free to return the very rows you
+excluded: they drop out of the text candidates, arrive with a vector rank and no text
+rank, and RRF pays the best vector hit `1/(k+1)`, the largest single contribution it can
+award. The row you typed `-pricing` to be rid of comes back near the top.
+
+A query of *only* exclusions has no keyword signal to rank by — `!'pricing'` matches
+almost the whole table and `ts_rank_cd` scores it identically for every row — so the
+keyword half is dropped rather than inverted, and the exclusion still applies to what
+remains. Without an embedding there is nothing left to rank, and you get a message
+saying so rather than an empty list.
 
 ## Find out which stage lost the answer
 

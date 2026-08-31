@@ -122,7 +122,8 @@ const FIXTURES = [
   ),
 
   // Text matching. "all" is one parser call over the raw string; "any" is one call per
-  // term, OR-ed, with each exclusion attached conjunctively.
+  // term, OR-ed. Exclusions are not in the tsquery at all — they are a predicate on both
+  // candidate CTEs — so these fixtures pin where they land.
   fixture("text-match-all", { textMatch: "all" }, { text: "renewal notice -pricing", limit: 5 }),
   fixture(
     "text-match-all-phrase",
@@ -150,10 +151,15 @@ const FIXTURES = [
     { textMatch: "any" },
     { text: 'renewal -"legacy plan"', limit: 5 },
   ),
-  // Only exclusions, and only noise: both fall back to handing the raw string to the
-  // parser rather than inventing a match-everything query.
-  fixture("text-only-exclusions", {}, { text: "-pricing -legacy", limit: 5 }),
-  fixture("text-noise-only", {}, { text: "and or", limit: 5 }),
+  // Only exclusions, and only noise: neither has a keyword signal, so both are vector
+  // search with the exclusion applied. Without an embedding they are rejected instead,
+  // which the error fixtures below cover.
+  fixture(
+    "text-only-exclusions",
+    {},
+    { embedding: [0.1, 0.2], text: "-pricing -legacy", limit: 5 },
+  ),
+  fixture("text-noise-only", {}, { embedding: [0.1, 0.2], text: "and or", limit: 5 }),
   fixture("text-unicode", {}, { text: 'café 日本語 "kündigung frist" -naïve 🙂', limit: 5 }),
 
   // Filters, inside both candidate CTEs.
@@ -353,13 +359,52 @@ sys.path.insert(0, str(Path(${JSON.stringify(ROOT)}) / "python" / "src"))
 from pghybrid.config import Config
 from pghybrid.sql import build_search_sql
 
+payload = json.load(sys.stdin)
+
 rendered = []
-for fixture in json.load(sys.stdin):
+for fixture in payload["fixtures"]:
     sql, params = build_search_sql(Config(**fixture["config"]), **fixture["call"])
     rendered.append({"name": fixture["name"], "sql": sql, "params": params})
 
-json.dump(rendered, sys.stdout)
+# What the two packages refuse is as much a part of the contract as what they emit. A
+# statement one of them builds and the other rejects is the worst kind of divergence,
+# because it only shows up in whichever language the user happened to pick.
+errors = []
+for fixture in payload["errors"]:
+    try:
+        build_search_sql(Config(**fixture["config"]), **fixture["call"])
+    except Exception as exc:
+        errors.append({"name": fixture["name"], "message": str(exc)})
+    else:
+        errors.append({"name": fixture["name"], "message": None})
+
+json.dump({"rendered": rendered, "errors": errors}, sys.stdout)
 `;
+
+/**
+ * Inputs both packages must refuse, with the same sentence.
+ *
+ * Rejection is part of the contract. A query one language builds a statement for and the
+ * other throws on is the worst kind of divergence: it is invisible until someone ports
+ * their code, and the SQL fixtures above can never catch it, because there is no SQL to
+ * compare.
+ *
+ * The messages are compared verbatim rather than by class. They are the whole of what a
+ * user sees, and two packages that disagree about how to explain the same mistake are
+ * two different libraries.
+ */
+const ERROR_FIXTURES = [
+  fixture("error-no-signal-at-all", {}, { limit: 5 }),
+  // Exclusions with nothing to rank: there is no keyword signal to fall back on, and
+  // inverting the corpus would be worse than saying so.
+  fixture("error-only-exclusions", {}, { text: "-pricing", limit: 5 }),
+  fixture("error-only-exclusions-quoted", {}, { text: '-"legacy plan" -pricing', limit: 5 }),
+  fixture("error-noise-only", {}, { text: "and or", limit: 5 }),
+  fixture("error-blank-query", {}, { text: "   ", limit: 5 }),
+  fixture("error-limit-zero", {}, { embedding: [0.1], limit: 0 }),
+  fixture("error-limit-negative", {}, { embedding: [0.1], limit: -1 }),
+  fixture("error-negative-offset", {}, { embedding: [0.1], limit: 5, offset: -1 }),
+];
 
 function renderWithPython(fixtures) {
   if (!existsSync(PYTHON)) {
@@ -370,7 +415,10 @@ function renderWithPython(fixtures) {
     );
   }
   const result = spawnSync(PYTHON, ["-c", PYTHON_DRIVER], {
-    input: JSON.stringify(fixtures.map(toPythonFixture)),
+    input: JSON.stringify({
+      fixtures: fixtures.map(toPythonFixture),
+      errors: ERROR_FIXTURES.map(toPythonFixture),
+    }),
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -447,7 +495,7 @@ async function main() {
   ensureBuilt();
   const { buildSearchSql } = await import(new URL("../js/dist/index.js", import.meta.url).href);
 
-  const python = renderWithPython(FIXTURES);
+  const { rendered: python, errors: pythonErrors } = renderWithPython(FIXTURES);
   const failures = [];
 
   for (const [index, item] of FIXTURES.entries()) {
@@ -485,6 +533,38 @@ async function main() {
     failures.push(report.join("\n"));
   }
 
+  // Rejections. Both packages must refuse the same inputs, with the same sentence.
+  for (const [index, item] of ERROR_FIXTURES.entries()) {
+    const expected = pythonErrors[index];
+    if (expected === undefined || expected.name !== item.name) {
+      throw new Error(`the Python builder returned no result for ${item.name}`);
+    }
+
+    let actual = null;
+    try {
+      buildSearchSql(item.config, { embedding: null, text: null, ...item.call });
+    } catch (error) {
+      actual = error instanceof Error ? error.message : String(error);
+    }
+
+    if (expected.message === actual) {
+      process.stdout.write(`  ok   ${item.name}\n`);
+      continue;
+    }
+
+    process.stdout.write(`  FAIL ${item.name}\n`);
+    failures.push(
+      [
+        `${item.name}:`,
+        expected.message === null || actual === null
+          ? "  one package builds a statement and the other refuses:"
+          : "  both refuse, but say different things:",
+        `  py  ${expected.message === null ? "<built a statement>" : JSON.stringify(expected.message)}`,
+        `  ts  ${actual === null ? "<built a statement>" : JSON.stringify(actual)}`,
+      ].join("\n"),
+    );
+  }
+
   // The golden file is the Python suite's own snapshot. Checking the TypeScript output
   // against it as well means the check still catches a drift if both builders are
   // changed together and only the snapshot is left behind.
@@ -507,7 +587,8 @@ async function main() {
   if (failures.length > 0) {
     process.stderr.write(`\n${failures.join("\n\n")}\n\n`);
     process.stderr.write(
-      `${failures.length} of ${FIXTURES.length + 1} checks failed. The Python and ` +
+      `${failures.length} of ${FIXTURES.length + ERROR_FIXTURES.length + 1} checks ` +
+        "failed. The Python and " +
         "TypeScript packages no longer generate the same SQL; fix whichever one moved " +
         "before this is released as one library with two behaviours.\n",
     );
@@ -516,7 +597,8 @@ async function main() {
   }
 
   process.stdout.write(
-    `\n${FIXTURES.length} fixtures plus the golden snapshot: identical SQL and parameters.\n`,
+    `\n${FIXTURES.length} fixtures, ${ERROR_FIXTURES.length} rejections and the golden ` +
+      "snapshot: identical SQL, parameters and error messages.\n",
   );
 }
 

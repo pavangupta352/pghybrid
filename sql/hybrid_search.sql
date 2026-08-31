@@ -34,7 +34,19 @@ WITH
 -- to_tsvector first means stemming and stop-word removal are Postgres' own.
 --
 -- Swap in websearch_to_tsquery('english', $2) if you genuinely want AND, or if
--- you need quoted phrases and -negation.
+-- you need quoted phrases.
+--
+-- If you swap it in for -negation, read this first. websearch reads a leading
+-- dash as NOT, so the excluded rows leave the text candidates — and nothing
+-- removes them from the vector candidates below. They come back with a vector
+-- rank and no text rank, and RRF pays the best vector hit 1/(k+1), the largest
+-- single contribution available, so the row you excluded can rank first. To
+-- exclude properly, add the same predicate to BOTH candidate CTEs:
+--
+--     AND NOT coalesce(fts @@ websearch_to_tsquery('english', $3), false)
+--
+-- inside each subquery, before its LIMIT. (The coalesce is not decoration: a
+-- NULL tsvector would otherwise make the whole predicate NULL and drop the row.)
 -- ---------------------------------------------------------------------------
 -- A query of nothing but stop words yields NULL here, which matches no rows and
 -- contributes no text candidates. That is the wanted behaviour: the vector side

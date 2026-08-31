@@ -963,10 +963,12 @@ describe("the golden snapshot", () => {
       "[0.25,-0.5,0.75]",
       42,
       ["en", "de"],
+      // The exclusion is bound in the vector CTE, which comes first, and the text CTE
+      // references the same placeholder rather than binding a second copy.
+      "pricing",
       80,
       "renewal",
       "notice period",
-      "pricing",
       42,
       ["en", "de"],
       80,

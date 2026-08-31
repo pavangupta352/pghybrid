@@ -33,6 +33,7 @@ from .schema import (
 )
 from .search import HybridSearch
 from .sql import IdentifierError, build_search_sql
+from .textquery import parse_query
 
 PROGRAM = "pghybrid"
 
@@ -163,11 +164,22 @@ def _resolve_config(connection: Any, args: argparse.Namespace) -> Config:
         raise CliError(str(exc)) from exc
 
 
-def _print_missing_signal(embedding: Optional[list[float]]) -> None:
+def _print_missing_signal(embedding: Optional[list[float]], query: str = "") -> None:
+    """Say when only one of the two signals actually ran.
+
+    Both directions are worth reporting. A search that silently drops half of itself
+    looks like a relevance problem, and the two causes — no embedding, or a query with
+    nothing to search *for* — are fixed in completely different places.
+    """
     if embedding is None:
         print(
             "  note: no embedding given, so this is the keyword signal alone.\n"
             "        pass --embedding '[...]' or --embedding-from <id> for hybrid.\n"
+        )
+    elif query and not parse_query(query).positive:
+        print(
+            "  note: that query only excludes terms, so there is no keyword signal.\n"
+            "        the exclusion still applies; ranking is the vector signal alone.\n"
         )
 
 
@@ -229,7 +241,7 @@ def command_search(args: argparse.Namespace) -> int:
     results = search.search(
         args.query, embedding=embedding, limit=args.limit, highlight=args.highlight
     )
-    _print_missing_signal(embedding)
+    _print_missing_signal(embedding, args.query)
 
     if not results:
         print("  no results")
@@ -274,7 +286,7 @@ def command_explain(args: argparse.Namespace) -> int:
     search = HybridSearch(
         config, execute=lambda sql, params: connection.execute(sql, params).fetchall()
     )
-    _print_missing_signal(embedding)
+    _print_missing_signal(embedding, args.query)
     report = explain(
         search,
         args.query,
