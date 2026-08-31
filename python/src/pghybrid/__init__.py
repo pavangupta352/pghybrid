@@ -42,7 +42,7 @@ from .search import AsyncHybridSearch, HybridSearch, SearchResult
 from .sql import IdentifierError, build_search_sql, quote_ident
 from .textquery import ParsedQuery, parse_query
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 __all__ = [
     # Configuration

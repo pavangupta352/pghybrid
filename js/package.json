@@ -1,6 +1,6 @@
 {
   "name": "pghybrid",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Hybrid search on the Postgres you already have. Vector + full-text + Reciprocal Rank Fusion on plain pgvector, with no extensions to install.",
   "license": "MIT",
   "author": "Pavan Gupta <pavan.gupta.352@gmail.com>",
