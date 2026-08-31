@@ -7,8 +7,21 @@ migration, a search query and a diagnostic report.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
+
+#: Text search configuration names are Postgres identifiers, optionally schema-qualified
+#: (``pg_catalog.english``). The value is interpolated into the statement rather than
+#: bound — a text search configuration is not a value, it is part of the query — so it is
+#: validated to exactly that shape. Without this, a language string could close the quote
+#: it sits inside and append arbitrary SQL.
+_LANGUAGE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
+
+#: Function names are interpolated for the same reason, so only these are accepted.
+#: Anything outside the set is rejected rather than escaped.
+QUERY_PARSERS = frozenset({"websearch_to_tsquery", "plainto_tsquery", "phraseto_tsquery"})
+RANK_FUNCTIONS = frozenset({"ts_rank_cd", "ts_rank"})
 
 VectorType = Literal["vector", "halfvec"]
 FusionMethod = Literal["rrf", "weighted"]
@@ -150,6 +163,23 @@ class Config:
                 raise ValueError(
                     f"unknown metric {self.metric!r}; expected one of {', '.join(sorted(METRICS))}"
                 ) from None
+        if not isinstance(self.language, str) or not _LANGUAGE_RE.match(self.language):
+            raise ValueError(
+                f"language must be a Postgres text search configuration name such as "
+                f"'english', 'simple' or 'pg_catalog.french', got {self.language!r}. "
+                "It is interpolated into the statement rather than bound, so only "
+                "identifier-shaped values are accepted."
+            )
+        if self.query_parser not in QUERY_PARSERS:
+            raise ValueError(
+                f"query_parser must be one of {', '.join(sorted(QUERY_PARSERS))}, "
+                f"got {self.query_parser!r}"
+            )
+        if self.rank_function not in RANK_FUNCTIONS:
+            raise ValueError(
+                f"rank_function must be one of {', '.join(sorted(RANK_FUNCTIONS))}, "
+                f"got {self.rank_function!r}"
+            )
         if self.text_match not in ("any", "all"):
             raise ValueError(f"text_match must be 'any' or 'all', got {self.text_match!r}")
         if self.paramstyle not in ("numeric", "pyformat"):

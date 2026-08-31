@@ -804,22 +804,23 @@ def test_empty_embedding_builds_but_pgvector_will_reject_it(config: Config) -> N
     assert params[0] == "[]"
 
 
-def test_language_and_parser_names_are_interpolated_without_validation(
+def test_the_interpolated_names_are_validated_before_they_reach_the_statement(
     make_config: Any,
 ) -> None:
-    """Documenting a real gap, not endorsing it.
+    """language, query_parser and rank_function are parts of the query, not values.
 
-    ``language``, ``query_parser`` and ``rank_function`` are typed as Literals but never
-    checked at runtime the way ``paramstyle`` and ``vector_type`` are, and all three are
-    interpolated straight into the statement. A Config built from user input is therefore
-    an injection surface, unlike every other field.
+    They cannot be bound, so they are validated in Config instead — and they used not to
+    be, which made a Config built from user input an injection surface unlike every other
+    field. The check lives in Config, so the builder can interpolate them without
+    thinking about it; this asserts the two halves stay connected.
     """
-    # TODO: validate language against a regex (or pg_ts_config) and query_parser and
-    # rank_function against their Literal members in Config.__post_init__, the way
-    # text_match, paramstyle and vector_type already are.
-    cfg = make_config(tsvector_column=None, language="english', 'injected")
+    with pytest.raises(ValueError, match="text search configuration"):
+        make_config(language="english', 'injected")
+
+    cfg = make_config(tsvector_column=None, language="french")
     sql, _ = build_search_sql(cfg, embedding=None, text="renewal", limit=5)
-    assert "'english', 'injected'" in sql
+    assert "to_tsvector('french'" in sql
+    assert sql.count("'") % 2 == 0, "an odd number of quotes means one of them escaped"
 
 
 # --------------------------------------------------------------------------------------

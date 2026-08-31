@@ -278,7 +278,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     vectorColumn: config.vectorColumn,
     idColumn: config.idColumn ?? "id",
     tsvectorColumn: config.tsvectorColumn ?? null,
-    language: config.language ?? "english",
+    language: resolveLanguage(config.language ?? "english"),
     vectorType,
     metric: resolveMetric(config.metric),
     fusion: config.fusion ?? "rrf",
@@ -288,12 +288,53 @@ export function resolveConfig(config: Config): ResolvedConfig {
     filterColumns: config.filterColumns ?? [],
     extraColumns: config.extraColumns ?? [],
     recency: resolveRecency(config.recency),
-    queryParser: config.queryParser ?? "websearch_to_tsquery",
-    rankFunction: config.rankFunction ?? "ts_rank_cd",
+    queryParser: resolveFromSet(
+      config.queryParser ?? "websearch_to_tsquery",
+      QUERY_PARSERS,
+      "queryParser",
+    ),
+    rankFunction: resolveFromSet(config.rankFunction ?? "ts_rank_cd", RANK_FUNCTIONS, "rankFunction"),
     paramStyle,
     textMatch,
     headlineOptions: config.headlineOptions ?? DEFAULT_HEADLINE_OPTIONS,
   };
+}
+
+
+/**
+ * Text search configuration names are Postgres identifiers, optionally schema-qualified
+ * (`pg_catalog.english`). The value is interpolated into the statement rather than bound
+ * — a text search configuration is not a value, it is part of the query — so it is
+ * validated to exactly that shape. Without this a language string could close the quote
+ * it sits inside and append arbitrary SQL.
+ */
+const LANGUAGE_RE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/;
+
+/** Interpolated for the same reason, so only these names are accepted. */
+const QUERY_PARSERS = ["websearch_to_tsquery", "plainto_tsquery", "phraseto_tsquery"] as const;
+const RANK_FUNCTIONS = ["ts_rank_cd", "ts_rank"] as const;
+
+function resolveLanguage(language: string): string {
+  if (typeof language !== "string" || !LANGUAGE_RE.test(language)) {
+    throw new Error(
+      `language must be a Postgres text search configuration name such as "english", ` +
+        `"simple" or "pg_catalog.french", got ${JSON.stringify(language)}. It is ` +
+        "interpolated into the statement rather than bound, so only identifier-shaped " +
+        "values are accepted.",
+    );
+  }
+  return language;
+}
+
+function resolveFromSet<T extends string>(
+  value: string,
+  allowed: readonly T[],
+  field: string,
+): T {
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw new Error(`${field} must be one of ${allowed.join(", ")}, got ${JSON.stringify(value)}`);
+  }
+  return value as T;
 }
 
 /** The operator class an index on the config's vector column must use. */

@@ -425,6 +425,12 @@ Three things in it are load-bearing:
 | `paramstyle` | `"numeric"` | `$1` for asyncpg / node-postgres / raw SQL, `"pyformat"` (`%s`) for psycopg |
 | `filter_columns` | `[]` | columns you may filter on; anything else is rejected rather than interpolated |
 
+Everything you pass is either a bind parameter or an identifier validated by
+`quote_ident` — except `language`, `query_parser` and `rank_function`, which are parts of
+the query rather than values and so cannot be bound. Those three are validated against a
+strict shape and a closed set instead, which matters if any of them ever comes from user
+input, as `language` plausibly does in a multilingual app.
+
 ### A note on `language`
 
 The configuration used at query time has to match the one the `tsvector` column was built

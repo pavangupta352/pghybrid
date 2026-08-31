@@ -308,22 +308,68 @@ def test_each_config_gets_its_own_column_lists() -> None:
     assert Config(**REQUIRED).filter_columns == []
 
 
-def test_language_and_parser_names_are_not_validated() -> None:
-    """Documenting a real gap, not endorsing it.
+# ----------------------------------------------------------- interpolated fields
 
-    Unlike text_match, paramstyle and vector_type, these three are typed as Literals but
-    never checked at runtime -- and unlike every other field, all three are interpolated
-    straight into the generated SQL rather than bound. A Config built from user input is
-    therefore an injection surface.
+
+class TestFieldsThatAreInterpolatedIntoTheStatement:
+    """Three config fields cannot be bound, so they are validated instead.
+
+    Everything a caller supplies is either a bind parameter or an identifier passed
+    through quote_ident — except the text search configuration and the two function
+    names, which are parts of the query rather than values. Those were interpolated
+    unchecked, so a language string could close the quote it sits inside and append
+    whatever it liked. An application that lets a user pick a search language is not a
+    strange thing to build.
     """
-    # TODO: validate language, query_parser and rank_function in __post_init__ alongside
-    # the other enumerated fields. See the matching test in test_sql.py.
-    cfg = Config(
-        language="klingon",
-        query_parser="drop_tsquery",
-        rank_function="ts_bm25",
-        **REQUIRED,
+
+    INJECTIONS = [
+        "english'), (SELECT 1)) AS x FROM chunks; DROP TABLE users; --",
+        "english' || (SELECT current_setting('is_superuser')) || '",
+        "english'; --",
+        "english\\\\",
+        "",
+        "pg catalog",
+        "english; DROP TABLE t",
+    ]
+
+    @pytest.mark.parametrize("value", INJECTIONS)
+    def test_language_rejects_anything_not_identifier_shaped(self, value: str) -> None:
+        with pytest.raises(ValueError, match="text search configuration"):
+            Config(table="c", text_column="content", vector_column="e", language=value)
+
+    @pytest.mark.parametrize(
+        "language", ["english", "simple", "french", "german", "pg_catalog.english", "_custom1"]
     )
-    assert cfg.language == "klingon"
-    assert cfg.query_parser == "drop_tsquery"
-    assert cfg.rank_function == "ts_bm25"
+    def test_real_configuration_names_are_accepted(self, language: str) -> None:
+        assert (
+            Config(table="c", text_column="content", vector_column="e", language=language).language
+            == language
+        )
+
+    @pytest.mark.parametrize(
+        "value", ["websearch_to_tsquery'); DROP TABLE t; --", "to_tsquery", "", "eval"]
+    )
+    def test_query_parser_is_a_closed_set(self, value: str) -> None:
+        with pytest.raises(ValueError, match="query_parser"):
+            Config(table="c", text_column="content", vector_column="e", query_parser=value)
+
+    @pytest.mark.parametrize("value", ["ts_rank_cd'); DROP TABLE t; --", "ts_rank_bad", ""])
+    def test_rank_function_is_a_closed_set(self, value: str) -> None:
+        with pytest.raises(ValueError, match="rank_function"):
+            Config(table="c", text_column="content", vector_column="e", rank_function=value)
+
+    def test_headline_options_may_be_anything_because_it_is_bound(self) -> None:
+        """The contrast that makes the rule clear: a value gets bound, not validated."""
+        from pghybrid.sql import build_search_sql
+
+        hostile = "x'); DROP TABLE t; --"
+        cfg = Config(
+            table="c",
+            text_column="content",
+            vector_column="e",
+            tsvector_column="fts",
+            headline_options=hostile,
+        )
+        sql, params = build_search_sql(cfg, embedding=None, text="hi", limit=5, highlight=True)
+        assert "DROP TABLE" not in sql
+        assert hostile in params

@@ -23,6 +23,7 @@ import {
   opsFor,
   resolveConfig,
 } from "../src/config.js";
+import { buildSearchSql } from "../src/sql.js";
 import type { Config, Metric } from "../src/config.js";
 
 const REQUIRED: Config = { table: "chunks", textColumn: "content", vectorColumn: "embedding" };
@@ -233,5 +234,73 @@ describe("numeric bounds and defaults", () => {
     expect(cfg.headlineOptions).toBe(
       "StartSel=<mark>, StopSel=</mark>, MaxFragments=2, MinWords=8, MaxWords=30",
     );
+  });
+});
+
+describe("fields that are interpolated into the statement", () => {
+  // Everything a caller supplies is either a bind parameter or an identifier passed
+  // through quoteIdent — except the text search configuration and the two function
+  // names, which are parts of the query rather than values. Those were interpolated
+  // unchecked, so a language string could close the quote it sits inside and append
+  // whatever it liked.
+  const injections = [
+    "english'), (SELECT 1)) AS x FROM chunks; DROP TABLE users; --",
+    "english' || (SELECT current_setting('is_superuser')) || '",
+    "english'; --",
+    "",
+    "pg catalog",
+    "english; DROP TABLE t",
+  ];
+
+  it.each(injections)("rejects a language that is not identifier-shaped: %s", (value) => {
+    expect(() =>
+      resolveConfig({ table: "c", textColumn: "content", vectorColumn: "e", language: value }),
+    ).toThrow(/text search configuration/);
+  });
+
+  it.each(["english", "simple", "french", "german", "pg_catalog.english", "_custom1"])(
+    "accepts the real configuration name %s",
+    (language) => {
+      expect(
+        resolveConfig({ table: "c", textColumn: "content", vectorColumn: "e", language }).language,
+      ).toBe(language);
+    },
+  );
+
+  it("treats queryParser and rankFunction as closed sets", () => {
+    expect(() =>
+      resolveConfig({
+        table: "c",
+        textColumn: "content",
+        vectorColumn: "e",
+         
+        queryParser: "websearch_to_tsquery'); DROP TABLE t; --" as any,
+      }),
+    ).toThrow(/queryParser/);
+    expect(() =>
+      resolveConfig({
+        table: "c",
+        textColumn: "content",
+        vectorColumn: "e",
+         
+        rankFunction: "ts_rank_cd'); DROP TABLE t; --" as any,
+      }),
+    ).toThrow(/rankFunction/);
+  });
+
+  it("binds headlineOptions rather than validating it, because it is a value", () => {
+    const hostile = "x'); DROP TABLE t; --";
+    const { sql, params } = buildSearchSql(
+      {
+        table: "c",
+        textColumn: "content",
+        vectorColumn: "e",
+        tsvectorColumn: "fts",
+        headlineOptions: hostile,
+      },
+      { text: "hi", limit: 5, highlight: true },
+    );
+    expect(sql).not.toContain("DROP TABLE");
+    expect(params).toContain(hostile);
   });
 });

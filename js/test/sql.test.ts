@@ -876,17 +876,27 @@ describe("argument validation", () => {
     expect(params[0]).toBe("[]");
   });
 
-  it("interpolates the language without validating it", () => {
-    // Documenting a real gap, not endorsing it: language, queryParser and rankFunction
-    // are typed but never checked at runtime, and all three are interpolated straight
-    // into the statement. A config built from user input is therefore an injection
-    // surface, unlike every other field. The Python package has the same gap and the
-    // two have to agree until it is closed in both.
-    const { sql } = buildSearchSql(
-      makeConfig({ tsvectorColumn: null, language: "english', 'injected" }),
-      { text: "renewal", limit: 5 },
-    );
-    expect(sql).toContain("'english', 'injected'");
+  it("validates the interpolated names before they reach the statement", () => {
+    // language, queryParser and rankFunction are parts of the query rather than values,
+    // so they cannot be bound and are validated in resolveConfig instead. They used not
+    // to be, which made a config built from user input an injection surface unlike every
+    // other field.
+    // A Config here is a plain object, so validation happens in resolveConfig, which
+    // buildSearchSql calls — before any SQL exists either way.
+    expect(() =>
+      buildSearchSql(makeConfig({ language: "english', 'injected" }), {
+        text: "renewal",
+        limit: 5,
+      }),
+    ).toThrow(/text search configuration/);
+
+    const { sql } = buildSearchSql(makeConfig({ tsvectorColumn: null, language: "french" }), {
+      text: "renewal",
+      limit: 5,
+    });
+    expect(sql).toContain("to_tsvector('french'");
+    // An odd number of quotes would mean one of them escaped its literal.
+    expect((sql.match(/'/g) ?? []).length % 2).toBe(0);
   });
 });
 

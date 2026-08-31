@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any, Optional
 
 from .config import Config, Recency, Weights
@@ -115,6 +116,11 @@ def _resolve_config(connection: Any, args: argparse.Namespace) -> Config:
     info = introspect(dbapi_executor(connection), args.table)
     config = suggest_config(info)
 
+    # Collected and applied through dataclasses.replace rather than set one at a time.
+    # Assigning to a field of an existing Config skips __post_init__, and __post_init__
+    # is where the fields that get interpolated into the statement — language above all
+    # — are validated. Setting them directly let a hostile --language through.
+    overrides: dict[str, Any] = {}
     for attribute in (
         "text_column",
         "vector_column",
@@ -126,30 +132,35 @@ def _resolve_config(connection: Any, args: argparse.Namespace) -> Config:
     ):
         value = getattr(args, attribute, None)
         if value is not None:
-            setattr(config, attribute, value)
+            overrides[attribute] = value
 
     if getattr(args, "k", None) is not None:
-        config.k = args.k
+        overrides["k"] = args.k
     if getattr(args, "candidates", None) is not None:
-        config.candidate_limit = args.candidates
+        overrides["candidate_limit"] = args.candidates
     if getattr(args, "weights", None):
         try:
             vector_weight, text_weight = (float(p) for p in args.weights.split(",", 1))
         except ValueError as exc:
             raise CliError("--weights takes two numbers, e.g. --weights 0.7,0.3") from exc
-        config.weights = Weights(vector=vector_weight, text=text_weight)
+        overrides["weights"] = Weights(vector=vector_weight, text=text_weight)
     if getattr(args, "recency", None):
         try:
             column, half_life = args.recency.split(",", 1)
-            config.recency = Recency(column=column.strip(), half_life_days=float(half_life))
+            overrides["recency"] = Recency(column=column.strip(), half_life_days=float(half_life))
         except ValueError as exc:
             raise CliError(
                 "--recency takes a column and a half-life in days, e.g. --recency created_at,90"
             ) from exc
 
     # psycopg is the only driver the CLI opens for itself, and it wants %s.
-    config.paramstyle = "pyformat"
-    return config
+    overrides["paramstyle"] = "pyformat"
+    try:
+        return replace(config, **overrides)
+    except ValueError as exc:
+        # Config's own validation messages are written for a person; a traceback on top
+        # of one only buries it.
+        raise CliError(str(exc)) from exc
 
 
 def _print_missing_signal(embedding: Optional[list[float]]) -> None:
