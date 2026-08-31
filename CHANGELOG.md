@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `doctor` reports in its findings when the query this package emits skips the vector
+  index. The plan section already marked it with a caret, but the findings are the list
+  people read and the only one sorted by severity, so the most useful thing the command
+  can say was the one thing outside it. Gated on row count, since a sequential scan is the
+  right plan on a small table. The finding also explains why it does not contradict a
+  perfect recall number printed beside it: recall is measured on the bare vector search,
+  which does use the index.
+
 ## [0.1.3] - 2026-09-01
 
 ### Fixed

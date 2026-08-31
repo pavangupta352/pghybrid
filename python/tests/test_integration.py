@@ -522,6 +522,62 @@ def test_a_repeated_id_multiplies_rows_through_the_fusion(connection, chunked_ta
     )
 
 
+def test_a_plan_that_skips_the_vector_index_reaches_the_findings(connection):
+    """The plan section marked it with a caret; the findings never mentioned it.
+
+    Findings are the list people read and the only one sorted by severity, and "the query
+    you actually run is not using your vector index" is the most useful thing this command
+    can say. It has to stay quiet on a small table, where a sequential scan is the right
+    plan and a warning would be noise, so the finding is gated on row count the same way
+    the missing-index one is.
+    """
+    connection.execute("DROP TABLE IF EXISTS plan_finding_probe")
+    connection.execute(
+        "CREATE TABLE plan_finding_probe ("
+        "  id bigserial PRIMARY KEY, content text NOT NULL, embedding vector(8),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        connection.execute(
+            "INSERT INTO plan_finding_probe (content, embedding) "
+            "SELECT 'renewal notice clause ' || i, "
+            "  ('[' || (SELECT string_agg((random())::text, ',') "
+            "           FROM generate_series(1,8)) || ']')::vector "
+            "FROM generate_series(1, 30000) i"
+        )
+        connection.execute(
+            "CREATE INDEX ON plan_finding_probe USING hnsw (embedding vector_cosine_ops)"
+        )
+        connection.execute("CREATE INDEX ON plan_finding_probe USING gin (fts)")
+        connection.execute("ANALYZE plan_finding_probe")
+
+        config = Config(
+            table="plan_finding_probe",
+            text_column="content",
+            vector_column="embedding",
+            tsvector_column="fts",
+            paramstyle="pyformat",
+        )
+        report = doctor(dbapi_executor(connection), config, sample=10, k=5)
+        emitted = next(
+            (p for p in report.plans if p.used_vector_index is False and not p.error), None
+        )
+        if emitted is None:
+            pytest.skip("the planner used the vector index for the emitted shape here")
+
+        finding = next(
+            (f for f in report.findings if "not used by the query this package emits" in f.title),
+            None,
+        )
+        assert finding is not None, "the caret in the plan section never reached the findings"
+        assert finding.level == "warn"
+        # It has to say why this does not contradict a perfect recall number above it.
+        assert "not in conflict" in finding.detail
+    finally:
+        connection.execute("DROP TABLE IF EXISTS plan_finding_probe")
+
+
 def test_recall_does_not_credit_an_index_the_planner_cannot_use(connection):
     """Perfect recall means nothing when the reason is that no index is running.
 

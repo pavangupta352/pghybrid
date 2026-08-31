@@ -257,6 +257,7 @@ def doctor(
     report.null_fraction, report.null_fraction_source = probe.null_fraction()
     report.filters = probe.filter_probes(filters)
     report.plans = probe.plan_probes(report.filters)
+    _check_emitted_plan(report)
 
     vectors = probe.sample_vectors(sample)
     report.sample_used = len(vectors)
@@ -1283,6 +1284,40 @@ def _check_inventory(report: DoctorReport, probe: _Prober) -> None:
     for message in probe.errors:
         add(Finding("warn", "probe did not complete", message))
     probe.errors.clear()
+
+
+def _check_emitted_plan(report: DoctorReport) -> None:
+    """Say it in the findings when the query this package emits skips the vector index.
+
+    The plan section already marks it with a caret, but the findings are the list people
+    read and the only one sorted by severity. It is also the single most useful thing this
+    command can tell someone, and it was the one thing living outside that list.
+
+    Worth being careful about the opposite mistake. A sequential scan is the right plan on
+    a small table, so warning there would be noise, and the recall finding reports the
+    bare vector search rather than this shape, which is why the two can disagree without
+    either being wrong.
+    """
+    if report.info.vector_index_for(report.config.vector_column) is None:
+        return  # already reported as "no vector index"; this would just repeat it
+    emitted = next(
+        (plan for plan in report.plans if plan.used_vector_index is False and not plan.error),
+        None,
+    )
+    if emitted is None or report.info.row_count < 10_000:
+        return
+    report.findings.append(
+        Finding(
+            "warn",
+            "the vector index is not used by the query this package emits",
+            f"The plan for {emitted.label} is {emitted.scan}. Results stay exact, so recall "
+            "is unaffected and can read 1.00, but the scan reads the whole table and its "
+            "cost grows with it. The recall measured above is for the bare vector search, "
+            "which does use the index, so the two are not in conflict.",
+            fix="Check that the query's filters are indexed, and that the operator class "
+            "matches the metric this config searches with.",
+        )
+    )
 
 
 def _check_recall(report: DoctorReport) -> None:
