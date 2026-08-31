@@ -13,25 +13,24 @@ extension you need superuser to install.
 
 ---
 
-## The problem, in one table
+## The problem, in one picture
+
+<p align="center">
+  <img src="assets/demo.svg" alt="The same query run three ways. Vector-only ranks &quot;Automatic extension&quot; first; keyword-only ranks &quot;Renewal pricing&quot; first; pghybrid ranks &quot;Termination for convenience&quot; first, which is the clause that actually answers the question. It is second on both individual signals and first on neither." width="983">
+</p>
 
 A contract. Someone asks **"renewal notice period"**. The clause that answers it says
 *"sixty days written notice prior to the anniversary date"* — it never uses the word
 *renewal*.
 
-| # | vector only | keyword only | **pghybrid** |
-|---|---|---|---|
-| 1 | Automatic extension | Renewal pricing | ✅ **Termination for convenience** |
-| 2 | ✅ Termination for convenience | ✅ Termination for convenience | Renewal pricing |
-| 3 | Subscription term | Renewal terms | Renewal terms |
-| 4 | Fees and invoicing | Notice requirements | Notice requirements |
-| 5 | Service levels | — | Automatic extension |
-
 Semantic search puts a plausible-but-wrong clause first. Keyword search puts the clause
 that *uses all three words and answers none of them* first. The right answer is second on
 both, and first on neither — which is exactly the case rank fusion exists to fix.
 
-Reproduce it yourself in about a minute: [`examples/`](examples/).
+That image is generated from a live query by
+[`scripts/make_demo_svg.py`](scripts/make_demo_svg.py), which refuses to draw itself if
+fusion stops surfacing the right clause. Reproduce it yourself in about a minute:
+[`examples/`](examples/).
 
 ## Why this exists
 

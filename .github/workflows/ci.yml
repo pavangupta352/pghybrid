@@ -141,6 +141,10 @@ jobs:
       # sees something different stops trusting the rest of the page.
       - name: README output still matches what the tool prints
         run: python/.venv/bin/python scripts/check_readme_output.py
+      # The demo above the fold is drawn from a live query, so it cannot show a result
+      # the code does not produce. This is what keeps that true.
+      - name: Demo image still matches a live query
+        run: python/.venv/bin/python scripts/make_demo_svg.py --check
 
   gitleaks:
     name: secret scan

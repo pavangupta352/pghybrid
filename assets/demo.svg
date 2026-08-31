@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="983" height="330" viewBox="0 0 983 330" role="img" aria-label="The same query run three ways: vector only and keyword only both rank the wrong clause first, pghybrid ranks the right one first.">
+  <rect width="983" height="330" rx="10" fill="#11141a"/>
+  <rect width="983" height="34" rx="10" fill="#1b1f27"/>
+  <rect y="24" width="983" height="10" fill="#1b1f27"/>
+  <circle cx="22" cy="17" r="6" fill="#ff5f57"/>
+  <circle cx="41" cy="17" r="6" fill="#febc2e"/>
+  <circle cx="60" cy="17" r="6" fill="#28c840"/>
+  <text x="491.5" y="22" fill="#6b7480" font-size="12" font-weight="400" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">pghybrid</text>
+  <text x="24" y="62" fill="#3fb950" font-size="13" font-weight="600" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">$</text>
+  <text x="40" y="62" fill="#e6edf3" font-size="13" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">pghybrid explain "renewal notice period"</text>
+  <text x="40" y="92" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">the clause that answers it never contains the word "renewal"</text>
+  <text x="80" y="126" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">vector only</text>
+  <text x="377.8" y="126" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">keyword only</text>
+  <text x="675.6" y="126" fill="#e6edf3" font-size="12" font-weight="600" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">pghybrid</text>
+  <text x="40" y="126" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">#</text>
+  <line x1="40" y1="136" x2="943" y2="136" stroke="#1b1f27" stroke-width="1"/>
+  <text x="40" y="158" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">1</text>
+  <text x="80" y="158" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Automatic extension</text>
+  <text x="377.8" y="158" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Renewal pricing</text>
+  <text x="675.6" y="158" fill="#3fb950" font-size="12" font-weight="600" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Termination for convenience</text>
+  <text x="936.4000000000001" y="158" fill="#3fb950" font-size="11" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">◄</text>
+  <text x="40" y="181" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">2</text>
+  <text x="80" y="181" fill="#d29922" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Termination for convenience</text>
+  <text x="340.8" y="181" fill="#d29922" font-size="11" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">◄</text>
+  <text x="377.8" y="181" fill="#d29922" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Termination for convenience</text>
+  <text x="638.6" y="181" fill="#d29922" font-size="11" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">◄</text>
+  <text x="675.6" y="181" fill="#c9d1d9" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Renewal pricing</text>
+  <text x="40" y="204" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">3</text>
+  <text x="80" y="204" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Subscription term</text>
+  <text x="377.8" y="204" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Renewal terms</text>
+  <text x="675.6" y="204" fill="#c9d1d9" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Renewal terms</text>
+  <text x="40" y="227" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">4</text>
+  <text x="80" y="227" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Fees and invoicing</text>
+  <text x="377.8" y="227" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Notice requirements</text>
+  <text x="675.6" y="227" fill="#c9d1d9" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Notice requirements</text>
+  <text x="40" y="250" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">5</text>
+  <text x="80" y="250" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Service levels</text>
+  <text x="377.8" y="250" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">—</text>
+  <text x="675.6" y="250" fill="#c9d1d9" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Automatic extension</text>
+  <text x="40" y="303" fill="#6b7480" font-size="12" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Neither signal ranked the right clause first.  It was second on both.</text>
+  <text x="40" y="325" fill="#58a6ff" font-size="12" font-weight="600" text-anchor="start" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" xml:space="preserve">Reciprocal Rank Fusion is what moved it to the top.</text>
+</svg>
