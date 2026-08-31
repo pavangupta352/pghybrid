@@ -25,7 +25,7 @@ Before opening a pull request, run everything CI runs, in the order CI runs it:
 scripts/check_all.sh          # or: scripts/check_all.sh fast, to skip the packaging build
 ```
 
-A README code block is checked if the line before its fence is `<!-- check:python -->` or
+A documentation code block is checked if the line before its fence is `<!-- check:python -->` or
 `<!-- check:ts -->`, which renders as nothing on GitHub. Add the marker to any block a
 reader is meant to copy and run; leave it off fragments that are illustrative rather than
 runnable, like the list of four adapters assigning the same name four times.

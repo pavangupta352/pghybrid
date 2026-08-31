@@ -30,7 +30,7 @@ step "typescript · vitest";        (cd js && npm test --silent)
 step "parity · identical SQL";     node scripts/check_parity.mjs
 step "sql/ · runs unmodified";     python/.venv/bin/python scripts/check_standalone_sql.py
 step "README · output matches";    python/.venv/bin/python scripts/check_readme_output.py
-step "README · code blocks run";   python/.venv/bin/python scripts/check_readme_code.py
+step "docs · code blocks run";     python/.venv/bin/python scripts/check_docs_code.py
 step "demo image · matches";       python/.venv/bin/python scripts/make_demo_svg.py --check
 step "examples · still run";       python/.venv/bin/python examples/three_way_comparison.py >/dev/null
                                    python/.venv/bin/python examples/langchain_retriever.py >/dev/null

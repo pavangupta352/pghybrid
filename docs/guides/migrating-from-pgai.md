@@ -85,6 +85,7 @@ LIMIT 10;
 The `ai.*_embed` call is the part that goes away. Embed the query in your application and
 pass the vector:
 
+<!-- check:python -->
 ```python
 from pghybrid import Config, HybridSearch
 

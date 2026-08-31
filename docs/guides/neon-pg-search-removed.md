@@ -34,6 +34,7 @@ pghybrid init --dsn "$DATABASE_URL" --table documents
 That inspects the table and writes a migration adding a `tsvector` generated column, a GIN
 index, and an HNSW index sized for your actual row count. Then:
 
+<!-- check:python -->
 ```python
 from pghybrid import Config, HybridSearch
 
