@@ -643,6 +643,92 @@ def test_doctor_samples_drift_at_random_not_with_a_bare_limit(connection, drift_
     assert measured > biased, "the random sample must see more drift than a bare LIMIT"
 
 
+def test_doctor_catches_a_generated_column_the_config_does_not_describe(connection):
+    """A generated column cannot fall behind its own expression. It can still be the
+    wrong expression, and that was invisible.
+
+    Scoping the drift check to non-generated columns looked obviously right and was not:
+    the comparison against to_tsvector(config.language, config.text_column) is exactly
+    the check for a config that disagrees with the column, whoever maintains it. Measured
+    on one table: the same query returned 5 rows with language="english" and 0 with
+    "simple", with nothing reported anywhere.
+    """
+    connection.execute("DROP TABLE IF EXISTS generated_config_probe")
+    connection.execute(
+        "CREATE TABLE generated_config_probe ("
+        "  id bigserial PRIMARY KEY, title text NOT NULL, content text NOT NULL,"
+        "  embedding vector(8),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        for i in range(40):
+            connection.execute(
+                "INSERT INTO generated_config_probe (title, content, embedding) "
+                "VALUES (%s, %s, %s::vector)",
+                (
+                    f"Clause {i}",
+                    f"the renewal notices were terminating {i}",
+                    "[" + ",".join(["0.1"] * 8) + "]",
+                ),
+            )
+
+        def finding(**overrides):
+            cfg = Config(
+                table="generated_config_probe",
+                text_column="content",
+                vector_column="embedding",
+                tsvector_column="fts",
+                paramstyle="pyformat",
+                **overrides,
+            )
+            report = doctor(dbapi_executor(connection), cfg, sample=30, k=5)
+            return next((f for f in report.findings if "fts" in f.title), None)
+
+        # The config that matches the column says nothing.
+        assert finding() is None or finding().level == "info", finding()
+
+        wrong_language = finding(language="simple")
+        assert wrong_language is not None and wrong_language.level == "error"
+        assert "generated from something else" in wrong_language.title
+        # The stored expression is in the message, because that is what tells you which
+        # end to change.
+        assert "english" in wrong_language.detail
+        # And it must not be described as stale, which a generated column cannot be.
+        assert "stale" not in wrong_language.title
+
+        # The same class: generated from a different column than the config searches.
+        connection.execute("DROP TABLE IF EXISTS generated_config_probe2")
+        connection.execute(
+            "CREATE TABLE generated_config_probe2 ("
+            "  id bigserial PRIMARY KEY, title text NOT NULL, content text NOT NULL,"
+            "  embedding vector(8),"
+            "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(title,'')))"
+            "  STORED)"
+        )
+        connection.execute(
+            "INSERT INTO generated_config_probe2 (title, content, embedding) "
+            "VALUES ('Clause one', 'renewal notice period', '[0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1]')"
+        )
+        report = doctor(
+            dbapi_executor(connection),
+            Config(
+                table="generated_config_probe2",
+                text_column="content",
+                vector_column="embedding",
+                tsvector_column="fts",
+                paramstyle="pyformat",
+            ),
+            sample=30,
+            k=5,
+        )
+        wrong_column = next((f for f in report.findings if "fts" in f.title), None)
+        assert wrong_column is not None and wrong_column.level == "error", wrong_column
+    finally:
+        connection.execute("DROP TABLE IF EXISTS generated_config_probe")
+        connection.execute("DROP TABLE IF EXISTS generated_config_probe2")
+
+
 def test_doctor_separates_a_wrong_text_config_from_a_stale_column(connection, drift_table):
     """Every row disagreeing is a different bug with a different fix.
 

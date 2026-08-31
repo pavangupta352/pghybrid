@@ -1094,12 +1094,37 @@ def _check_inventory(report: DoctorReport, probe: _Prober) -> None:
             )
 
     ts_column = info.column(config.tsvector_column) if config.tsvector_column else None
-    if ts_column is not None and not ts_column.generated:
+    if ts_column is not None:
         # "Nothing guarantees it matches" is a guess, and this tool measures. The check
         # is a single aggregate over a sample and stays inside the read-only session.
         measured = probe.tsvector_drift(report.sample_requested or 50)
         drifted, sampled, how = measured if measured else (0, 0, "")
 
+    # A generated column cannot fall behind its own expression, which is why the first
+    # version of this check skipped it. That was the wrong conclusion: it can still
+    # disagree with the *config*, and the comparison is the same one. A column generated
+    # with 'english' searched by a config that says 'simple' returns nothing at all from
+    # the keyword half -- measured at 5 rows against 0 on the same table -- and no other
+    # check here sees it.
+    if ts_column is not None and ts_column.generated:
+        if measured is not None and drifted:
+            add(
+                Finding(
+                    "error",
+                    f"{ts_column.name} is generated from something else",
+                    f"{drifted:,} of {sampled:,} rows {how} differ from "
+                    f"to_tsvector('{config.language}', {config.text_column}), and a "
+                    "generated column cannot fall behind its own expression, so the "
+                    "expression is not what this config describes. It is stored as "
+                    f"{ts_column.default or 'an expression this tool could not read'}. "
+                    "Nothing errors: the tsquery is built one way and the column the "
+                    "other, so the keyword half of every search quietly matches less "
+                    "than it should, or nothing at all.",
+                    fix="Change the config to match the column, or rebuild the column "
+                    "to match the config. The config is nearly always the cheaper end.",
+                )
+            )
+    elif ts_column is not None:
         if measured is None:
             add(
                 Finding(

@@ -97,6 +97,12 @@ First release.
   reporting that the keyword signal missed rows it had ranked first. `Config` now refuses
   the whole reserved set, and a test reads the aliases back out of a fully-featured
   statement so the list cannot fall behind the query.
+- The `tsvector` check covers generated columns. Scoping it to hand-maintained ones looked
+  obviously right — a generated column cannot fall behind its own expression — and missed
+  the case where the expression is not the one the config describes. A column generated
+  with `'english'` and searched by a config saying `'simple'` returned 5 rows against 0 on
+  the same table, and nothing reported it. The finding quotes the stored expression, and a
+  generated column is never described as stale, which it cannot be.
 - `doctor` checks that `id_column` is unique. The fusion joins on it twice, so a repeated
   id multiplies rows: pointing `id_column` at a `doc_id` over chunked text returned the
   same document ten times for `limit=10`, silently. A unique index is proof and produces

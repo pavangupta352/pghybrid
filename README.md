@@ -359,7 +359,14 @@ arithmetic shown so you can defend the choice:
   results on a table with five chunks per `doc_id` returns the same document ten times,
   with no error anywhere. A primary key needs no finding; a column with no unique index is
   reported even when no duplicate exists yet, because the first insert makes it wrong
-- **a `tsvector` column that has stopped matching its text**, measured on a random sample.
+- **a `tsvector` column that does not match what the config searches**, measured on a random
+  sample. This covers a generated column too: it cannot fall behind its own expression, but
+  it can be the wrong expression — a column generated with `'english'` searched by a config
+  that says `'simple'` returned 5 rows against 0 on the same table, with nothing reported
+  anywhere. The finding quotes the stored expression, because that is what tells you which
+  end to change
+- **a hand-maintained `tsvector` that has stopped matching its text**, measured on a random
+  sample.
   If a trigger or a backfill maintains the column rather than Postgres generating it, it
   can fall behind, and the failure is silent in both directions: those rows come back for
   words they no longer contain and go missing for the words they do. It reads as bad
