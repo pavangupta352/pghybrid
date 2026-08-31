@@ -1,0 +1,141 @@
+name: Release
+
+# Publishes to PyPI and npm on a version tag, using Trusted Publishing (OIDC).
+# No API token is stored anywhere - both registries verify the workflow identity.
+#
+# One-time setup, before the first release:
+#
+#   PyPI   https://pypi.org/manage/account/publishing/  (add a "pending publisher",
+#          since the project does not exist there yet)
+#            Project name : pghybrid
+#            Owner        : pavangupta352
+#            Repository   : pghybrid
+#            Workflow     : release.yml
+#            Environment  : pypi
+#
+#   npm    https://www.npmjs.com/package/pghybrid/access  after the first manual
+#          publish, or configure the trusted publisher on the org/package settings.
+#
+# Then:  git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - name: Build the wheel and sdist
+        working-directory: python
+        run: python -m build --outdir ../dist
+      - name: Check the tag matches the packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(ls dist/*.whl | sed -E 's/.*pghybrid-([0-9.]+)-py3.*/\1/')
+          echo "tag=$TAG package=$PKG"
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag $TAG != version $PKG"; exit 1; }
+      - name: Check the two packages agree on the version
+        run: |
+          PY=$(grep -m1 '^version = ' python/pyproject.toml | cut -d'"' -f2)
+          JS=$(node -p "require('./js/package.json').version")
+          echo "python=$PY js=$JS"
+          [ "$PY" = "$JS" ] || { echo "::error::python $PY != js $JS"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Makes the release re-runnable. Without this, a re-run after a failure
+          # elsewhere in the workflow dies here on "version exists", which is exactly
+          # when you most want to re-run it.
+          skip-existing: true
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js
+    permissions:
+      id-token: write # npm Trusted Publishing, same as PyPI: no token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      # Node 22 ships npm 10.x, which has no OIDC support at all. Trusted publishing
+      # needs npm >= 11.5.1, and without it the registry answers a PUT with 404 rather
+      # than 401 - so the failure looks like a missing package instead of a failed login.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+      - run: npm --version
+      # setup-node writes an _authToken line into .npmrc referencing NODE_AUTH_TOKEN.
+      # With no token secret set that resolves to a placeholder, and an invalid token
+      # beats OIDC. Drop it so npm falls through to the trusted publisher.
+      - name: Remove the placeholder auth token so OIDC is used
+        run: |
+          if [ -n "$NPM_CONFIG_USERCONFIG" ] && [ -f "$NPM_CONFIG_USERCONFIG" ]; then
+            sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
+            echo "cleaned $NPM_CONFIG_USERCONFIG"
+          fi
+      - run: npm ci
+      - run: npm run build
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag=$TAG package=$PKG"
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag $TAG != version $PKG"; exit 1; }
+      # Skip cleanly if this version is already on npm, so a re-run - or a first
+      # release published by hand before trusted publishing could be configured - does
+      # not fail the release.
+      - name: Publish if this version is new
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "pghybrid@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::pghybrid@$VERSION is already on npm, skipping"
+            exit 0
+          fi
+          npm publish --provenance --access public
+
+  github-release:
+    needs: [publish-pypi, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
