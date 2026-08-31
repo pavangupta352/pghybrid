@@ -415,6 +415,126 @@ def test_paging_past_the_pool_says_so_instead_of_returning_nothing(search):
         search.search(DEMO_QUERY, embedding=query_vector(), limit=10, offset=50)
 
 
+@pytest.fixture
+def drift_table(connection):
+    """A hand-maintained tsvector, so it can fall out of step with the text."""
+    connection.execute("DROP TABLE IF EXISTS drift_probe")
+    connection.execute(
+        "CREATE TABLE drift_probe (id bigserial PRIMARY KEY, content text NOT NULL,"
+        " fts tsvector, embedding vector(8))"
+    )
+    for i in range(200):
+        connection.execute(
+            "INSERT INTO drift_probe (content, embedding) VALUES (%s, %s::vector)",
+            (f"clause {i} about renewal notice and termination", "[" + ",".join(["0.1"] * 8) + "]"),
+        )
+    connection.execute("UPDATE drift_probe SET fts = to_tsvector('english', content)")
+    yield "drift_probe"
+    connection.execute("DROP TABLE IF EXISTS drift_probe")
+
+
+def _drift_finding(connection, table, language="english"):
+    report = doctor(
+        dbapi_executor(connection),
+        Config(
+            table=table,
+            text_column="content",
+            vector_column="embedding",
+            tsvector_column="fts",
+            language=language,
+            paramstyle="pyformat",
+        ),
+        sample=100,
+        k=5,
+    )
+    return next((f for f in report.findings if "fts" in f.title), None)
+
+
+def test_doctor_measures_tsvector_drift_rather_than_warning_about_it(connection, drift_table):
+    """A tsvector nothing maintains goes stale silently, and in both directions.
+
+    The rows keep the old text's lexemes, so they are returned for words they no longer
+    contain and missing for the words they do. Nothing errors; it reads as bad relevance,
+    which sends you to the ranking rather than to the data.
+
+    The finding used to say only that "nothing guarantees it matches", which is a guess.
+    This tool measures everything else it reports, and the comparison is one aggregate.
+    """
+    healthy = _drift_finding(connection, drift_table)
+    assert healthy is not None and healthy.level == "info", healthy
+    assert "matches the text column" in healthy.title
+
+    # The text moves on; whatever was maintaining the column does not.
+    connection.execute(
+        "UPDATE drift_probe SET content = 'indemnity and force majeure superseded' WHERE id <= 60"
+    )
+    stale = _drift_finding(connection, drift_table)
+    assert stale is not None and stale.level == "error", stale
+    assert "stale" in stale.title
+    # 60 of 200 is 30%, and a 100-row sample of it will not be exact.
+    drifted = int(stale.title.split("stale for ")[1].split(" of ")[0])
+    assert 15 <= drifted <= 50, f"measured {drifted} of 100, expected roughly 30"
+
+
+def test_doctor_samples_drift_at_random_not_with_a_bare_limit(connection, drift_table):
+    """An UPDATE writes the new row version at the end of the heap.
+
+    So the rows a sequential scan reaches last are exactly the rows that have been
+    updated, which are exactly the rows likely to have drifted. Sampling with a bare
+    LIMIT reported 3 of 100 on a table that was genuinely 60 of 200 — it misses the
+    problem precisely because the problem moved the rows.
+    """
+    connection.execute(
+        "UPDATE drift_probe SET content = 'indemnity and force majeure superseded' WHERE id <= 60"
+    )
+    biased = connection.execute(
+        "SELECT count(*) FILTER (WHERE coalesce(fts, ''::tsvector) IS DISTINCT FROM "
+        "  to_tsvector('english', coalesce(content, ''))) AS drifted "
+        "FROM (SELECT fts, content FROM drift_probe LIMIT 100) s"
+    ).fetchone()["drifted"]
+    assert biased < 15, (
+        "the bare-LIMIT sample was expected to under-report; if this ever fails the "
+        "premise of the random sampling below has changed, not the code"
+    )
+
+    title = _drift_finding(connection, drift_table).title
+    measured = int(title.split("stale for ")[1].split(" of ")[0])
+    assert measured > biased, "the random sample must see more drift than a bare LIMIT"
+
+
+def test_doctor_separates_a_wrong_text_config_from_a_stale_column(connection, drift_table):
+    """Every row disagreeing is a different bug with a different fix.
+
+    A stopped trigger leaves most rows fine. A column built with another text search
+    configuration leaves none of them fine, and rewriting the data would be the wrong
+    response — the configuration is what is wrong.
+    """
+    connection.execute("UPDATE drift_probe SET fts = to_tsvector('simple', content)")
+    finding = _drift_finding(connection, drift_table, language="english")
+    assert finding is not None and finding.level == "error", finding
+    assert "does not match this configuration at all" in finding.title
+    assert "stale" not in finding.title
+
+    # And it is not flagged when the configuration is the one the column was built with.
+    agreed = _drift_finding(connection, drift_table, language="simple")
+    assert agreed is not None and agreed.level == "info", agreed
+
+
+def test_doctor_stays_read_only_while_measuring_drift(connection, drift_table):
+    before = connection.execute("SELECT count(*) AS n FROM drift_probe").fetchone()["n"]
+    checksum = connection.execute(
+        "SELECT count(*) AS n FROM drift_probe WHERE fts IS NOT NULL"
+    ).fetchone()["n"]
+    _drift_finding(connection, drift_table)
+    assert connection.execute("SELECT count(*) AS n FROM drift_probe").fetchone()["n"] == before
+    assert (
+        connection.execute(
+            "SELECT count(*) AS n FROM drift_probe WHERE fts IS NOT NULL"
+        ).fetchone()["n"]
+        == checksum
+    ), "the drift check repaired the column instead of reporting it"
+
+
 def test_highlight_marks_the_matched_terms(search):
     rows = search.search(DEMO_QUERY, embedding=query_vector(), limit=3, highlight=True)
     assert any("<mark>" in (r.highlight or "") for r in rows)

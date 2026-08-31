@@ -64,6 +64,15 @@ First release.
   80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
   in a search UI, with nothing to indicate anything was wrong.
 
+- `doctor` measures whether a hand-maintained `tsvector` still matches its text instead
+  of warning that it might not. A stale column is silent in both directions — rows are
+  returned for words they no longer contain and missing for the words they do — and reads
+  as a relevance problem. A column that disagrees on every sampled row is reported
+  separately as a text search configuration mismatch, which has a different fix. The
+  sample is random rather than a bare `LIMIT`: an UPDATE writes the new row version at the
+  end of the heap, so a `LIMIT` reads mostly the rows that were never touched and reported
+  3 of 100 on a table that was 60 of 200.
+
 ### Security
 - `language`, `query_parser` and `rank_function` are validated. They are interpolated
   rather than bound, and were unchecked, so a `Config` built from user input was an

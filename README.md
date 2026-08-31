@@ -348,6 +348,13 @@ arithmetic shown so you can defend the choice:
   is where most multi-tenant applications live, and pgvector 0.8's
   [iterative index scans](https://github.com/pgvector/pgvector#iterative-index-scans) are
   the fix
+- **a `tsvector` column that has stopped matching its text**, measured on a random sample.
+  If a trigger or a backfill maintains the column rather than Postgres generating it, it
+  can fall behind, and the failure is silent in both directions: those rows come back for
+  words they no longer contain and go missing for the words they do. It reads as bad
+  relevance, so people go looking at the ranking. A column that disagrees on *every* row is
+  reported as a different problem, because that is a text search configuration mismatch and
+  rewriting the data would be the wrong fix
 
 It is read-only by default and will not write to your database without an explicit flag.
 

@@ -494,6 +494,55 @@ class _Prober:
             self.sample_vectors(1)
         return self._cached_vector
 
+    def tsvector_drift(self, sample: int) -> Optional[tuple[int, int, str]]:
+        """How many sampled rows have a tsvector that no longer matches their text.
+
+        Worth measuring rather than warning about, because the failure is completely
+        silent and the two directions are both wrong: a row whose tsvector still holds
+        the old text is returned for words it no longer contains, and is missing for the
+        words it does. Nothing errors, and the result simply looks like bad relevance.
+
+        Only meaningful for a column something else maintains. A generated column cannot
+        drift, which is the entire argument for generating it.
+
+        The sample must be random. A bare LIMIT is not: an UPDATE writes a new row
+        version at the end of the heap, so the rows a sequential scan reaches last are
+        exactly the rows that have been updated — and therefore exactly the rows likely
+        to have drifted. Sampling that way reported 3 of 100 on a table that was 60 of
+        200. Same rule as sample_vectors, for the same reason.
+
+        Returns ``(drifted, sampled, how)``, or None if the comparison could not be run.
+        """
+        text_column = quote_ident(self.config.text_column)
+        tsv_column = quote_ident(self.config.tsvector_column or "")
+        expected = f"to_tsvector('{self.config.language}', coalesce({text_column}, ''))"
+        if self.info.row_count > 200_000:
+            fraction = min(100.0, max(0.01, 400.0 * sample / max(self.info.row_count, 1)))
+            source = (
+                f"SELECT {tsv_column}, {text_column} FROM {self.table} "
+                f"TABLESAMPLE SYSTEM ({fraction:.4f}) LIMIT {int(sample)}"
+            )
+            how = "sampled by page, so a table whose stale rows sit together may read low"
+        else:
+            source = (
+                f"SELECT {tsv_column}, {text_column} FROM {self.table} "
+                f"ORDER BY random() LIMIT {int(sample)}"
+            )
+            how = "sampled at random"
+        try:
+            with self.session():
+                row = self.run(
+                    "SELECT count(*) FILTER (WHERE "
+                    f"  coalesce({tsv_column}, ''::tsvector) IS DISTINCT FROM {expected}"
+                    f") AS drifted, count(*) AS sampled FROM ({source}) sampled_rows"
+                )
+        except Exception as exc:  # noqa: BLE001 - reported, never raised at the caller
+            self.errors.append(f"tsvector drift check: {exc}")
+            return None
+        if not row:
+            return None
+        return int(row[0][0]), int(row[0][1]), how
+
     # -- the measurement ----------------------------------------------------
 
     def vector_sql(self, vector: str, k: int, *, predicate: str = "", exact: bool = False) -> str:
@@ -956,15 +1005,72 @@ def _check_inventory(report: DoctorReport, probe: _Prober) -> None:
 
     ts_column = info.column(config.tsvector_column) if config.tsvector_column else None
     if ts_column is not None and not ts_column.generated:
-        add(
-            Finding(
-                "warn",
-                f"{ts_column.name} is not a generated column",
-                "It is maintained by a trigger or by the application, so nothing "
-                "guarantees it matches the text column. Rows whose tsvector was never "
-                "written are invisible to the keyword half of every search.",
+        # "Nothing guarantees it matches" is a guess, and this tool measures. The check
+        # is a single aggregate over a sample and stays inside the read-only session.
+        measured = probe.tsvector_drift(report.sample_requested or 50)
+        drifted, sampled, how = measured if measured else (0, 0, "")
+
+        if measured is None:
+            add(
+                Finding(
+                    "warn",
+                    f"{ts_column.name} is not a generated column",
+                    "It is maintained by a trigger or by the application, so nothing "
+                    "guarantees it matches the text column, and the comparison that "
+                    "would have checked did not run.",
+                )
             )
-        )
+        elif drifted == 0:
+            add(
+                Finding(
+                    "info",
+                    f"{ts_column.name} matches the text column",
+                    f"All {sampled:,} rows {how} agree with "
+                    f"to_tsvector('{config.language}', {config.text_column}). Whatever "
+                    "maintains the column is keeping up today; a generated column would "
+                    "make that true by construction rather than by inspection.",
+                )
+            )
+        elif drifted == sampled:
+            # Every row disagreeing is not a stopped trigger. It is the column having
+            # been built with a different text search configuration, which is a separate
+            # bug with a separate fix: change the config, not the data.
+            add(
+                Finding(
+                    "error",
+                    f"{ts_column.name} does not match this configuration at all",
+                    f"All {sampled:,} rows {how} differ from "
+                    f"to_tsvector('{config.language}', {config.text_column}). Every row "
+                    "disagreeing points at the column having been built with a different "
+                    "text search configuration rather than at maintenance stopping, so "
+                    "the stemming pghybrid queries with is not the stemming the column "
+                    "was written with, and both halves of every keyword search are "
+                    "wrong. Check which configuration built the column before rewriting "
+                    "anything.",
+                    fix=f"Config(..., language=<the configuration the column was built "
+                    f"with>)  -- currently {config.language!r}",
+                )
+            )
+        else:
+            share = drifted / sampled if sampled else 0.0
+            add(
+                Finding(
+                    "error",
+                    f"{ts_column.name} is stale for {drifted:,} of {sampled:,} sampled rows",
+                    f"{share:.0%} of the sample ({how}) holds a tsvector that no longer "
+                    "matches "
+                    "its text, so whatever maintains the column has fallen behind. This "
+                    "is silent in both directions: those rows are returned for words "
+                    "they no longer contain, and are missing for the words they do. "
+                    "Nothing errors and the result looks like a relevance problem.",
+                    fix=(
+                        f"UPDATE {quote_ident(config.table)} SET "
+                        f"{quote_ident(ts_column.name)} = to_tsvector('{config.language}', "
+                        f"coalesce({quote_ident(config.text_column)}, ''));  -- then make "
+                        "it generated so it cannot drift again"
+                    ),
+                )
+            )
 
     vector_index = info.vector_index_for(config.vector_column)
     if vector_index is None:
