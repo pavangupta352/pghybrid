@@ -995,6 +995,43 @@ def test_a_bare_vector_column_yields_required_work_nothing_can_run(connection):
         connection.execute("DROP TABLE IF EXISTS bare_vector_probe")
 
 
+def test_ivfflat_lists_shows_arithmetic_that_is_actually_true() -> None:
+    """The number was always right. The working shown next to it was not.
+
+    Under a thousand rows the division floors to zero and the result is clamped to one
+    list, but the line printed said "500 rows / 1000 = 1 lists", which is simply false.
+    This tool's argument for itself is that it shows the arithmetic so you can defend the
+    choice to whoever owns the database, and a reader who checks the sum is precisely the
+    reader that line exists for.
+
+    Also pins the threshold, which the function's own docstring calls the part everybody
+    gets wrong: rows/1000 up to and including a million, sqrt(rows) above it.
+    """
+    from pghybrid.schema import IVFFLAT_SQRT_THRESHOLD, ivfflat_lists
+
+    for rows in (0, 1, 500, 999):
+        lists, arithmetic = ivfflat_lists(rows)
+        assert lists == 1
+        assert "rounds to 0" in arithmetic and "minimum" in arithmetic, arithmetic
+        assert f"= {lists} lists" not in arithmetic, "claims a division that did not happen"
+
+    # Once the division carries, the arithmetic is literal and must read that way.
+    for rows, expected in ((1_000, 1), (1_500, 1), (12_000, 12), (999_999, 999)):
+        lists, arithmetic = ivfflat_lists(rows)
+        assert lists == expected
+        assert f"{rows:,} rows / 1000 = {expected:,} lists" in arithmetic, arithmetic
+
+    # The threshold is inclusive on the division side and exclusive on the sqrt side.
+    at, at_text = ivfflat_lists(IVFFLAT_SQRT_THRESHOLD)
+    assert at == IVFFLAT_SQRT_THRESHOLD // 1000 and "/ 1000" in at_text
+    above, above_text = ivfflat_lists(IVFFLAT_SQRT_THRESHOLD + 1)
+    assert "sqrt(" in above_text and above == int((IVFFLAT_SQRT_THRESHOLD + 1) ** 0.5)
+
+    # A negative row count cannot happen from a catalog read, but reltuples is -1 for a
+    # never-analysed table and that has reached this function before.
+    assert ivfflat_lists(-1)[0] == 1
+
+
 def test_migration_is_idempotent(connection):
     executor = dbapi_executor(connection)
     connection.execute("DROP TABLE IF EXISTS migration_target CASCADE")

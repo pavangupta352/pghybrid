@@ -1000,11 +1000,21 @@ def ivfflat_lists(rows: int) -> tuple[int, str]:
     """
     rows = max(int(rows), 0)
     if rows <= IVFFLAT_SQRT_THRESHOLD:
-        lists = max(rows // 1000, 1)
-        arithmetic = (
-            f"{rows:,} rows / 1000 = {lists:,} lists "
-            f"(at or below {IVFFLAT_SQRT_THRESHOLD:,} rows pgvector's rule is rows/1000)"
-        )
+        exact = rows // 1000
+        lists = max(exact, 1)
+        # Saying "500 rows / 1000 = 1 lists" is not the arithmetic, it is the answer with
+        # the working faked. Anything under a thousand rows divides to zero and is clamped,
+        # and a reader checking the sum is exactly the reader this line is written for.
+        if exact == 0:
+            arithmetic = (
+                f"{rows:,} rows / 1000 rounds to 0, so 1 list (the minimum) "
+                f"(at or below {IVFFLAT_SQRT_THRESHOLD:,} rows pgvector's rule is rows/1000)"
+            )
+        else:
+            arithmetic = (
+                f"{rows:,} rows / 1000 = {lists:,} lists "
+                f"(at or below {IVFFLAT_SQRT_THRESHOLD:,} rows pgvector's rule is rows/1000)"
+            )
     else:
         lists = max(int(math.sqrt(rows)), 1)
         arithmetic = (
