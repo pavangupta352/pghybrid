@@ -485,3 +485,127 @@ async def test_asyncpg_adapter_matches_the_sync_result():
     finally:
         await conn.close()
     assert titles(results) == [PLANTED_TITLE, "Renewal pricing", "Renewal terms"]
+
+
+# ---------------------------------------------------------------- non-English corpora
+
+
+@pytest.fixture
+def french_table(connection):
+    """A small French corpus with a French-configured tsvector column."""
+    connection.execute("DROP TABLE IF EXISTS chunks_fr CASCADE")
+    connection.execute(
+        """
+        CREATE TABLE chunks_fr (
+            id bigserial PRIMARY KEY,
+            title text NOT NULL,
+            content text NOT NULL,
+            embedding vector(8),
+            fts tsvector GENERATED ALWAYS AS
+                (to_tsvector('french', coalesce(content, ''))) STORED
+        )
+        """
+    )
+    rows = [
+        (
+            "Loyers impayés",
+            "Le locataire doit régler les loyers impayés dans un délai de trente jours.",
+        ),
+        (
+            "Préavis de résiliation",
+            "Le préavis de résiliation est de trois mois avant la date anniversaire.",
+        ),
+        (
+            "Charges locatives",
+            "Les charges locatives sont régularisées annuellement par le bailleur.",
+        ),
+        (
+            "Dépôt de garantie",
+            "Le dépôt de garantie est restitué dans les deux mois suivant la remise des clés.",
+        ),
+    ]
+    for index, (title, content) in enumerate(rows):
+        connection.execute(
+            "INSERT INTO chunks_fr (title, content, embedding) VALUES (%s, %s, %s)",
+            (title, content, to_pgvector(unit_vector(0.2 * index))),
+        )
+    yield "chunks_fr"
+    connection.execute("DROP TABLE IF EXISTS chunks_fr CASCADE")
+
+
+def _french_config(table: str, language: str) -> Config:
+    return Config(
+        table=table,
+        text_column="content",
+        vector_column="embedding",
+        tsvector_column="fts",
+        extra_columns=["title"],
+        language=language,
+        paramstyle="pyformat",
+    )
+
+
+def test_french_stemming_matches_an_inflected_query(connection, french_table):
+    """'loyers impayés' must find 'loyer impayé', which needs French stemming.
+
+    English stemming leaves the French plural and accents alone, so the same query
+    against an English-configured query would not match the stored lexemes. Getting the
+    text search configuration wrong does not error — it silently returns nothing — which
+    is why this is asserted rather than assumed.
+    """
+    search = HybridSearch(
+        _french_config(french_table, "french"),
+        execute=lambda sql, params: connection.execute(sql, params).fetchall(),
+    )
+    results = search.search("loyers impayés", limit=5)
+    assert titles(results) and titles(results)[0] == "Loyers impayés"
+
+
+def test_the_wrong_text_config_degrades_silently(connection, french_table):
+    """The failure this project keeps warning about, pinned to what really happens.
+
+    The column is built with 'french', which stores 'impai' for "impayés" and 'loyer'
+    for "loyers". Querying it as 'english' yields 'impayé' and 'loyer': one of the two
+    terms still matches by luck, because it stems identically in both languages, and the
+    other is lost. So the wrong configuration does not fail loudly and does not
+    necessarily return nothing — it quietly answers with less than you asked for, which
+    is harder to notice.
+    """
+    french = HybridSearch(
+        _french_config(french_table, "french"),
+        execute=lambda sql, params: connection.execute(sql, params).fetchall(),
+    )
+    english = HybridSearch(
+        _french_config(french_table, "english"),
+        execute=lambda sql, params: connection.execute(sql, params).fetchall(),
+    )
+
+    # The term that only French stemming can match.
+    assert titles(french.search("impayés", limit=5)) == ["Loyers impayés"]
+    assert english.search("impayés", limit=5) == [], (
+        "'impayés' stems to 'impai' in the stored column and to 'impayé' under English, "
+        "so the English-configured query cannot match it"
+    )
+
+    # The term that happens to stem the same either way still matches, which is exactly
+    # what makes the misconfiguration survive a casual test.
+    assert titles(english.search("loyers", limit=5)) == ["Loyers impayés"]
+
+
+def test_a_query_config_must_match_the_column_config(connection, french_table):
+    """'simple' does no stemming, so it cannot match a stemmed column.
+
+    This is the same lesson from the other direction, and it is why the migration names
+    the text search configuration explicitly rather than relying on a database default
+    that can be changed underneath the column.
+    """
+    simple = HybridSearch(
+        _french_config(french_table, "simple"),
+        execute=lambda sql, params: connection.execute(sql, params).fetchall(),
+    )
+    # The column stored 'locatair'; 'simple' asks for 'locataire' and finds nothing.
+    assert simple.search("locataire", limit=5) == []
+
+    # With a vector alongside, the search still returns rows — from one signal only.
+    degraded = simple.search("locataire", embedding=query_vector(), limit=3)
+    assert degraded and all(row.text_rank is None for row in degraded)

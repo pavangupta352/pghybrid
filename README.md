@@ -370,7 +370,7 @@ Three things in it are load-bearing:
 | `table`, `text_column`, `vector_column` | — | required |
 | `id_column` | `"id"` | primary key |
 | `tsvector_column` | `None` | a stored tsvector column. Omitted, the tsvector is computed inline: no migration needed, but no GIN index either |
-| `language` | `"english"` | text search config. Use `"simple"` for identifiers, product codes and mixed-language corpora |
+| `language` | `"english"` | text search config — **must match the one the column was built with**, see below |
 | `text_match` | `"any"` | `"any"` OR-s terms, `"all"` keeps Postgres' AND |
 | `fusion` | `"rrf"` | or `"weighted"`, kept so `explain` can show you what it does |
 | `k` | `60` | the RRF constant |
@@ -381,6 +381,20 @@ Three things in it are load-bearing:
 | `recency` | `None` | `Recency(column, half_life_days)` — exponential decay on the fused score |
 | `paramstyle` | `"numeric"` | `$1` for asyncpg / node-postgres / raw SQL, `"pyformat"` (`%s`) for psycopg |
 | `filter_columns` | `[]` | columns you may filter on; anything else is rejected rather than interpolated |
+
+### A note on `language`
+
+The configuration used at query time has to match the one the `tsvector` column was built
+with, and a mismatch does not error. A column built with `'french'` stores `impai` for
+*impayés*; an English-configured query asks for `impayé` and simply does not match it —
+while `loyer`, which stems identically in both languages, still does. So the search keeps
+working, on fewer of your terms, which is much harder to notice than a failure.
+
+Use your own language (`'french'`, `'german'`, `'spanish'`, …), or `'simple'` for
+identifiers, product codes and mixed-language corpora — `'simple'` does no stemming at
+all, so it cannot match a stemmed column either. `pghybrid init` reads the configuration
+off the existing column rather than guessing, and the generated migration always names it
+explicitly instead of relying on a database default that can be changed underneath you.
 
 ## Requirements
 
