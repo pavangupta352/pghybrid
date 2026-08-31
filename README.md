@@ -220,12 +220,35 @@ $ pghybrid explain "renewal notice period" --limit 4 --near-miss 3
 And when a document you *know* is in there does not come back:
 
 ```
-$ pghybrid find "sixty days written notice"
+$ pghybrid explain "renewal notice period" --find "sixty days written notice"
 
-  found in chunk 2 "Termination for convenience"
-    vector rank   2 of 50 candidates
-    text rank     2 of 50 candidates
-    final rank    1
+  find · "sixty days written notice"
+
+    id 2 · Termination for convenience
+    returned at #1 — the query found it
+    #2 by vector (distance 0.03894) · #2 by text (ts_rank_cd 0.30000)
+```
+
+And when the text is not there at all, it says so in those words rather than leaving you
+to infer it from an empty result:
+
+```
+  find · "force majeure pandemic clause"
+
+    no row in chunks contains that text (searched content, title)
+    → the chunk is not in the table, so no amount of ranking will retrieve it
+      — check ingestion and chunking, not the weights
+```
+
+Or when it is indexed but lost the ranking:
+
+```
+  find · "commercially reasonable efforts"
+
+    id 5 · Service levels
+    fused at #8 of 12 candidates, below the near-miss band
+    #5 by vector (distance 0.19790) · no text match
+    → widen the report with near_miss=6 to see what outranks it
 ```
 
 That single command separates *"the chunk was never indexed"* from *"the chunk was
@@ -234,10 +257,32 @@ outranked"* — two completely different bugs that look identical from the outsi
 ## Grade the index you already have
 
 ```
-$ pghybrid doctor --dsn $DATABASE_URL --table chunks
+$ pghybrid doctor --dsn $DATABASE_URL --table documents
 
-  recall@10   0.68   ← measured against exact search, 50 sampled queries
+SWEEP  recall@10 and latency at each setting
+------------------------------------------------------------------------------
+  ivfflat.probes          recall         p50         p95
+  1                         0.12     0.18 ms     0.46 ms  <- current, pgvector's default
+  2                         0.14     0.28 ms     0.96 ms
+  14                        0.36     0.46 ms     0.77 ms
+  20                        0.42     0.57 ms     0.83 ms
+  50                        0.68     0.76 ms     0.87 ms
+  Latency is measured client-side, so it includes one round trip per query.
+
+FINDINGS
+------------------------------------------------------------------------------
+  [error] recall@10 = 0.12 over 25 sampled queries
+        The index is losing most of the right answers: about 8.8 of every 10
+        results are not among the true nearest neighbours.
+        fix: Raise ivfflat.probes; the sweep shows what each value costs in
+             latency.
 ```
+
+That is a real run against 20,000 rows behind an `ivfflat` index built with `lists = 200`.
+At the default of one probe the index was returning **12% of the right answers** and
+reporting no error, because an under-tuned vector index does not fail — it silently
+returns worse results. Recall is measured against exact search on query vectors sampled
+from the table itself, so it needs no labelled data.
 
 `doctor` reads the real shape of your table and tells you what to change, with the
 arithmetic shown so you can defend the choice:

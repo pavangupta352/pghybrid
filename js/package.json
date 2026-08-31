@@ -1,0 +1,75 @@
+{
+  "name": "pghybrid",
+  "version": "0.1.0",
+  "description": "Hybrid search on the Postgres you already have. Vector + full-text + Reciprocal Rank Fusion on plain pgvector, with no extensions to install.",
+  "license": "MIT",
+  "author": "Pavan Gupta <pavan.gupta.352@gmail.com>",
+  "homepage": "https://github.com/pavangupta352/pghybrid#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pavangupta352/pghybrid.git",
+    "directory": "js"
+  },
+  "bugs": {
+    "url": "https://github.com/pavangupta352/pghybrid/issues"
+  },
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "pgvector",
+    "hybrid-search",
+    "rrf",
+    "reciprocal-rank-fusion",
+    "full-text-search",
+    "vector-search",
+    "semantic-search",
+    "rag",
+    "retrieval",
+    "tsvector",
+    "bm25",
+    "supabase"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.15.0",
+    "pg": "^8.13.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.15.0",
+    "vitest": "^2.1.5"
+  }
+}
