@@ -29,6 +29,7 @@ show four adapters — simply carry no marker.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -38,7 +39,12 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
-DSN = "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+# CI runs Postgres on 5432 and docker-compose maps it to 55432 locally, so this has to
+# come from the environment like every other script here does.
+DSN = os.environ.get(
+    "PGHYBRID_TEST_DSN",
+    os.environ.get("PGHYBRID_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"),
+)
 
 BLOCK = re.compile(
     r"<!-- check:(?P<kind>python|ts) -->\n```(?:python|ts)\n(?P<body>.*?)```", re.DOTALL
@@ -114,6 +120,17 @@ def check_ts(workspace: pathlib.Path) -> None:
 
     project = workspace / "consumer"
     project.mkdir()
+    # Pack what the build produces, not whatever dist/ happens to hold. A CI job that
+    # installs but does not build packs a package with no entry point, and every block
+    # then fails with "cannot find module" for a reason that has nothing to do with the
+    # README.
+    subprocess.run(
+        ["npm", "run", "--silent", "build"],
+        cwd=ROOT / "js",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     packed = subprocess.run(
         ["npm", "pack", "--pack-destination", str(workspace)],
         cwd=ROOT / "js",
