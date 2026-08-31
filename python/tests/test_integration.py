@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import random
 import sys
 
 import pytest
@@ -764,3 +765,122 @@ def test_the_version_properties_read_the_server_not_a_constant(connection):
     assert replace(info, pgvector_version="0.7.0").supports_halfvec is True
     assert replace(info, pgvector_version="0.7.4").supports_iterative_scan is False
     assert replace(info, pgvector_version="0.8.0").supports_iterative_scan is True
+
+
+# ------------------------------------------------- concurrency, partitions, wide vectors
+
+
+def test_one_instance_is_safe_to_share_across_threads(config):
+    """A web application holds one HybridSearch and serves requests from a pool.
+
+    Nothing in the builder is stateful, but "should be fine" is not an assertion. Each
+    thread searches with a vector pointing at a known document, so cross-talk between
+    concurrent calls shows up as the wrong title rather than as a crash.
+    """
+    pool = pytest.importorskip("psycopg_pool")
+    import threading
+
+    connection_pool = pool.ConnectionPool(
+        DSN, min_size=4, max_size=8, kwargs={"row_factory": psycopg.rows.dict_row}, open=True
+    )
+
+    def execute(sql, params):
+        with connection_pool.connection() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    search = HybridSearch(config, execute=execute)
+    expected = [(unit_vector(angle), title) for angle, title, _ in DOCUMENTS]
+    mismatches: list[str] = []
+    lock = threading.Lock()
+
+    def worker(seed: int) -> None:
+        rng = random.Random(seed)
+        for _ in range(25):
+            vector, title = expected[rng.randrange(len(expected))]
+            rows = search.search(None, embedding=vector, limit=1)
+            got = str(rows[0].get("title")) if rows else None
+            if got != title:
+                with lock:
+                    mismatches.append(f"expected {title!r}, got {got!r}")
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(12)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    connection_pool.close()
+
+    assert not mismatches, f"concurrent searches returned another call's rows: {mismatches[:3]}"
+
+
+def test_a_partitioned_table_is_searched_and_indexed_like_any_other(connection):
+    """Partitioning by tenant is the usual shape for multi-tenant search."""
+    connection.execute("DROP TABLE IF EXISTS parted CASCADE")
+    connection.execute(
+        """CREATE TABLE parted (
+               id bigserial, tenant_id int NOT NULL, content text NOT NULL,
+               embedding vector(8), PRIMARY KEY (id, tenant_id))
+           PARTITION BY LIST (tenant_id)"""
+    )
+    try:
+        connection.execute("CREATE TABLE parted_1 PARTITION OF parted FOR VALUES IN (1)")
+        connection.execute("CREATE TABLE parted_2 PARTITION OF parted FOR VALUES IN (2)")
+        for index, (angle, _, content) in enumerate(DOCUMENTS[:6]):
+            connection.execute(
+                "INSERT INTO parted (tenant_id, content, embedding) VALUES (%s, %s, %s)",
+                (1 + index % 2, content, to_pgvector(unit_vector(angle))),
+            )
+
+        info = introspect(dbapi_executor(connection), "parted")
+        assert info.kind == "p" and info.is_partitioned and info.is_indexable
+
+        config = suggest_config(info)
+        config.paramstyle = "pyformat"
+        search = HybridSearch(
+            config, execute=lambda sql, params: connection.execute(sql, params).fetchall()
+        )
+        assert search.search(DEMO_QUERY, embedding=query_vector(), limit=3)
+
+        # A partitioned index is valid DDL from Postgres 11; it must not be skipped.
+        for statement in build_migration(config, info):
+            if not statement.optional:
+                connection.execute(statement.sql)
+    finally:
+        connection.execute("DROP TABLE IF EXISTS parted CASCADE")
+
+
+def test_an_embedding_too_wide_to_index_gets_the_halfvec_route(connection):
+    """text-embedding-3-large is 3,072 dimensions; pgvector indexes at most 2,000.
+
+    A plain vector index simply refuses to build, so the migration has to reach for the
+    halfvec cast — whose limit is 4,000 — and say why, or the recommendation looks
+    arbitrary.
+    """
+    connection.execute("DROP TABLE IF EXISTS wide CASCADE")
+    connection.execute(
+        "CREATE TABLE wide (id bigserial PRIMARY KEY, content text, embedding vector(3072))"
+    )
+    try:
+        connection.execute(
+            "INSERT INTO wide (content, embedding) VALUES ('renewal notice period', %s)",
+            ("[" + ",".join("0.01" for _ in range(3072)) + "]",),
+        )
+        info = introspect(dbapi_executor(connection), "wide")
+        config = suggest_config(info)
+
+        vector_statements = [s for s in build_migration(config, info) if "hnsw" in s.sql.lower()]
+        assert vector_statements, "a wide embedding should still get an index recommendation"
+        statement = vector_statements[0]
+        assert "halfvec" in statement.sql
+        assert "2,000" in statement.reason, "the reason has to name the limit it is working around"
+
+        # It is only a recommendation if it builds.
+        connection.execute("SET maintenance_work_mem = '512MB'")
+        connection.execute(statement.sql)
+
+        with pytest.raises(psycopg.errors.ProgramLimitExceeded):
+            connection.execute(
+                "CREATE INDEX wide_plain ON wide USING hnsw (embedding vector_cosine_ops)"
+            )
+    finally:
+        connection.execute("DROP TABLE IF EXISTS wide CASCADE")

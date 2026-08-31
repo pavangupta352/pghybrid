@@ -460,6 +460,12 @@ explicitly instead of relying on a database default that can be changed undernea
 No other extension. That is the point, and it is asserted by a test that runs against
 stock `pgvector/pgvector` images with only `plpgsql` and `vector` installed.
 
+Also covered by tests rather than assumed: one `HybridSearch` shared across threads
+against a connection pool, 400 concurrent `asyncpg` searches, partitioned tables, and
+embeddings too wide to index — `text-embedding-3-large` is 3,072 dimensions and pgvector
+indexes at most 2,000, so the migration reaches for a `halfvec` expression index, whose
+limit is 4,000, and says why.
+
 ## Prior art, credited
 
 - **[ParadeDB `pg_search`](https://github.com/paradedb/paradedb)** — real BM25 in Postgres,
