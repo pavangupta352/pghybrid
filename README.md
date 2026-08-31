@@ -347,11 +347,11 @@ $ python scripts/benchmark.py
 
   mode                   p50       p95
   ------------------------------------
-  vector only          2.39ms     3.11ms
-  keyword only         7.63ms    12.36ms
-  hybrid (both)        5.89ms     8.26ms
+  vector only          1.99ms     2.70ms
+  keyword only         7.55ms    12.80ms
+  hybrid (both)        5.31ms     7.95ms
 
-  Adding the keyword signal costs +3.50ms at p50 (+147% over vector-only).
+  Adding the keyword signal costs +3.32ms at p50 (+167% over vector-only).
 ```
 
 Reproduce it with [`scripts/benchmark.py`](scripts/benchmark.py) — that block is its

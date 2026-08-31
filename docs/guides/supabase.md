@@ -90,20 +90,31 @@ as $$
     )::tsquery as tsq
   ),
   vector_candidates as (
-    select d.id,
-           rank() over (order by d.embedding <=> query_embedding) as rank
-    from documents d
-    where d.embedding is not null
-    order by d.embedding <=> query_embedding
-    limit candidates
+    -- The window sits outside the limit deliberately. A rank() in the same select as
+    -- order by ... limit must see every matching row before the limit applies, so its
+    -- cost scales with how many rows match rather than with the limit: 1.19ms against
+    -- 0.85ms on 100k rows, widening as the table grows. The inner order by carries a
+    -- tiebreaker, without which the rows chosen at the cut-off are arbitrary — and
+    -- ts_rank_cd ties heavily.
+    select id, distance, rank() over (order by distance) as rank
+    from (
+      select d.id, d.embedding <=> query_embedding as distance
+      from documents d
+      where d.embedding is not null
+      order by distance, d.id
+      limit candidates
+    ) c
   ),
   text_candidates as (
-    select d.id,
-           rank() over (order by ts_rank_cd(d.fts, tq.tsq) desc) as rank
-    from documents d, text_query tq
-    where d.fts @@ tq.tsq
-    order by ts_rank_cd(d.fts, tq.tsq) desc
-    limit candidates
+    -- Same shape, same two reasons.
+    select id, rank() over (order by score desc) as rank
+    from (
+      select d.id, ts_rank_cd(d.fts, tq.tsq) as score
+      from documents d, text_query tq
+      where d.fts @@ tq.tsq
+      order by score desc, d.id
+      limit candidates
+    ) c
   )
   select
     d.id,

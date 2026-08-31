@@ -1,23 +1,27 @@
 WITH vector_candidates AS (
-    SELECT "chunk_id" AS id,
-           "embedding" <=> $1::vector AS distance,
-           rank() OVER (ORDER BY "embedding" <=> $1::vector) AS rank
-    FROM "public"."chunks"
-    WHERE "embedding" IS NOT NULL AND "tenant_id" = $2 AND "lang" = ANY($3)
-    ORDER BY "embedding" <=> $1::vector
-    LIMIT $4
+    SELECT id, distance, rank() OVER (ORDER BY distance) AS rank
+    FROM (
+        SELECT "chunk_id" AS id,
+               "embedding" <=> $1::vector AS distance
+        FROM "public"."chunks"
+        WHERE "embedding" IS NOT NULL AND "tenant_id" = $2 AND "lang" = ANY($3)
+        ORDER BY distance, id
+        LIMIT $4
+    ) candidates
 ),
 text_query AS (
     SELECT (websearch_to_tsquery('english', $5) || websearch_to_tsquery('english', $6)) && !!websearch_to_tsquery('english', $7) AS tsq
 ),
 text_candidates AS (
-    SELECT "chunk_id" AS id,
-           ts_rank_cd("content_tsv", tsq) AS score,
-           rank() OVER (ORDER BY ts_rank_cd("content_tsv", tsq) DESC) AS rank
-    FROM "public"."chunks", text_query
-    WHERE "content_tsv" @@ tsq AND "tenant_id" = $8 AND "lang" = ANY($9)
-    ORDER BY ts_rank_cd("content_tsv", tsq) DESC
-    LIMIT $10
+    SELECT id, score, rank() OVER (ORDER BY score DESC) AS rank
+    FROM (
+        SELECT "chunk_id" AS id,
+               ts_rank_cd("content_tsv", tsq) AS score
+        FROM "public"."chunks", text_query
+        WHERE "content_tsv" @@ tsq AND "tenant_id" = $8 AND "lang" = ANY($9)
+        ORDER BY score DESC, id
+        LIMIT $10
+    ) candidates
 ),
 scored AS (
     SELECT coalesce(v.id, t.id) AS id,

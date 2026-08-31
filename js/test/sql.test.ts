@@ -160,24 +160,32 @@ describe("quoteIdent", () => {
 
 describe("placeholder rendering", () => {
   it("reuses one numeric placeholder for a repeated value", () => {
-    // The distance expression appears three times in the vector CTE (projection,
-    // window ORDER BY, and the CTE's own ORDER BY). Numbered placeholders let all
-    // three point at a single copy of the embedding, which matters: an embedding is
-    // the largest value in the statement and sending it three times is measurable on
-    // the wire.
-    const { sql, params } = buildSearchSql(config, { embedding: [0.1, 0.2, 0.3], limit: 5 });
-    expect(count(cte(sql, "vector_candidates"), "$1::vector")).toBe(3);
-    expect(params.filter((value) => value === "[0.1,0.2,0.3]")).toHaveLength(1);
+    // The RRF constant k is referenced by both contribution expressions, and numbered
+    // placeholders let both point at one copy. The embedding is mentioned only once now,
+    // since ranking happens outside the LIMIT, so k is what exercises deduplication.
+    const { sql, params } = buildSearchSql(config, {
+      embedding: [0.1, 0.2, 0.3],
+      text: "renewal",
+      limit: 5,
+    });
+    const scored = cte(sql, "scored");
+    const k = /\((\$\d+)::float8 \+ v\.rank\)/.exec(scored)![1];
+    expect(scored.split(`${k}::float8`).length - 1).toBe(2);
+    expect(params.filter((p) => p === 60).length).toBe(1);
+    expect(params.filter((p) => p === "[0.1,0.2,0.3]").length).toBe(1);
   });
 
   it("repeats the value for every mention in pyformat", () => {
-    // %s is positional, so a value used twice has to be sent twice.
-    const { sql, params } = buildSearchSql(makeConfig({ paramStyle: "pyformat" }), {
+    const cfg = makeConfig({ paramStyle: "pyformat" });
+    const { sql, params } = buildSearchSql(cfg, {
       embedding: [0.1, 0.2, 0.3],
+      text: "renewal",
       limit: 5,
     });
-    expect(count(cte(sql, "vector_candidates"), "%s::vector")).toBe(3);
-    expect(params.filter((value) => value === "[0.1,0.2,0.3]")).toHaveLength(3);
+    const scored = cte(sql, "scored");
+    // %s is positional, so k has to be sent for each mention.
+    expect(scored.split("%s::float8").length - 1).toBe(4);
+    expect(params.filter((p) => p === 60).length).toBe(2);
     expect(sql).not.toContain("$1");
   });
 
@@ -630,11 +638,11 @@ describe("vector type and metric", () => {
 
     expect(candidates).toContain("::halfvec");
     expect(candidates).not.toContain("::vector");
-    // The cast is emitted twice ("$1::halfvec::halfvec") because the parameter is
-    // already cast to the config's vector type before the distance expression casts it
-    // again. Postgres accepts it and the plan is identical; the Python package does
-    // exactly the same thing, and parity matters more here than tidiness.
-    expect(count(candidates, "$1::halfvec::halfvec")).toBe(3);
+    // Was "$1::halfvec::halfvec": the parameter is already cast to the config's vector
+    // type, and the distance expression cast it again. Postgres accepted it and the plan
+    // was identical, but it read as a mistake in SQL people copy out of the README.
+    expect(candidates).not.toContain("::halfvec::halfvec");
+    expect(count(candidates, "::halfvec")).toBe(1);
   });
 
   it("casts to vector by default", () => {
@@ -808,14 +816,22 @@ describe("limits and the candidate budget", () => {
   });
 
   it("orders and limits each candidate CTE independently", () => {
-    // Both signals must contribute a full candidate list, ranked on their own terms.
     const { sql } = buildSearchSql(config, { embedding: [0.1], text: "renewal", limit: 5 });
     const vector = cte(sql, "vector_candidates");
     const text = cte(sql, "text_candidates");
-    expect(vector).toContain('ORDER BY "embedding" <=>');
-    expect(vector).toContain("rank() OVER (ORDER BY");
-    expect(text).toContain("DESC");
-    expect(text).toContain("rank() OVER (ORDER BY");
+
+    // Each CTE limits first and ranks the survivors: ranking inside the limited SELECT
+    // would force the window over every matching row before the limit could apply.
+    expect(vector).toContain("rank() OVER (ORDER BY distance) AS rank");
+    expect(text).toContain("rank() OVER (ORDER BY score DESC) AS rank");
+
+    // The tiebreaker is what makes the cut-off reproducible; ts_rank_cd ties heavily.
+    expect(vector).toContain("ORDER BY distance, id");
+    expect(text).toContain("ORDER BY score DESC, id");
+
+    for (const candidates of [vector, text]) {
+      expect(candidates.indexOf("rank() OVER")).toBeLessThan(candidates.indexOf("LIMIT"));
+    }
   });
 
   it("orders results by the final score with a stable tiebreak", () => {

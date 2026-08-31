@@ -72,15 +72,19 @@ with text_query as (
           from unnest(to_tsvector('english', $2)))::tsquery as tsq
 ),
 vector_candidates as (
-  select id, rank() over (order by embedding <=> $1) as rank
-  from documents where embedding is not null
-  order by embedding <=> $1 limit 50
+  -- Rank the survivors, not every match: a window in the same select as
+  -- order by ... limit stops the index scan from finishing early.
+  select id, rank() over (order by distance) as rank
+  from (select id, embedding <=> $1 as distance from documents
+        where embedding is not null
+        order by distance, id limit 50) c
 ),
 text_candidates as (
-  select d.id, rank() over (order by ts_rank_cd(d.fts, q.tsq) desc) as rank
-  from documents d, text_query q
-  where d.fts @@ q.tsq
-  order by ts_rank_cd(d.fts, q.tsq) desc limit 50
+  select id, rank() over (order by score desc) as rank
+  from (select d.id, ts_rank_cd(d.fts, q.tsq) as score
+        from documents d, text_query q
+        where d.fts @@ q.tsq
+        order by score desc, d.id limit 50) c
 )
 select coalesce(v.id, t.id) as id,
        coalesce(1.0/(60 + v.rank), 0) + coalesce(1.0/(60 + t.rank), 0) as score
@@ -104,6 +108,12 @@ and because the vector side still returns rows, the search appears to work while
 running on one signal.
 
 **The join must be `full outer`.** An inner join keeps only documents both signals found.
+
+**Rank after limiting, not before.** A `rank()` in the same select as `order by ... limit`
+has to see every matching row before the limit can apply, so its cost scales with how many
+rows match rather than with the limit — 1.19ms against 0.85ms on 100k rows, widening as the
+table grows. Add a tiebreaker to the inner `order by` too: `ts_rank_cd` ties heavily, and
+without one the rows chosen at the cut-off can differ between identical runs.
 
 ## Is `ts_rank_cd` good enough for you?
 

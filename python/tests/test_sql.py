@@ -154,24 +154,26 @@ def test_config_identifiers_are_validated_at_build_time(make_config: Any) -> Non
 def test_numeric_style_reuses_one_placeholder_for_a_repeated_value(config: Config) -> None:
     """$1 can be referenced as many times as the statement needs it.
 
-    The distance expression appears three times in the vector CTE (projection, window
-    ORDER BY, and the CTE's own ORDER BY). Numbered placeholders let all three point at
-    a single copy of the embedding, which matters: an embedding is the largest value in
-    the statement and sending it three times is measurable on the wire.
+    The RRF constant k appears in both contribution expressions, and numbered
+    placeholders let both point at one copy. The embedding is now mentioned only once,
+    since ranking happens outside the LIMIT, so k is what exercises the deduplication.
     """
-    sql, params = build_search_sql(config, embedding=[0.1, 0.2, 0.3], text=None, limit=5)
-    candidates = cte(sql, "vector_candidates")
-    assert candidates.count("$1::vector") == 3
+    sql, params = build_search_sql(config, embedding=[0.1, 0.2, 0.3], text="renewal", limit=5)
+    scored = cte(sql, "scored")
+    k_placeholder = re.search(r"\((\$\d+)::float8 \+ v\.rank\)", scored).group(1)
+    assert scored.count(f"{k_placeholder}::float8") == 2
+    assert params.count(60.0) == 1
     assert params.count("[0.1,0.2,0.3]") == 1
 
 
 def test_pyformat_style_repeats_the_value_for_every_mention(make_config: Any) -> None:
     """%s is positional, so a value used twice has to be sent twice."""
     cfg = make_config(paramstyle="pyformat")
-    sql, params = build_search_sql(cfg, embedding=[0.1, 0.2, 0.3], text=None, limit=5)
-    candidates = cte(sql, "vector_candidates")
-    assert candidates.count("%s::vector") == 3
-    assert params.count("[0.1,0.2,0.3]") == 3
+    sql, params = build_search_sql(cfg, embedding=[0.1, 0.2, 0.3], text="renewal", limit=5)
+    scored = cte(sql, "scored")
+    # k is referenced by both contributions and so must be sent twice.
+    assert scored.count("%s::float8") == 4
+    assert params.count(60.0) == 2
     assert "$1" not in sql
 
 
@@ -561,13 +563,15 @@ def test_halfvec_config_casts_the_query_vector_and_picks_the_halfvec_opclass(
 
     assert "::halfvec" in candidates
     assert "::vector" not in candidates
+    # Exactly one cast. The placeholder arrives already cast to the configured vector
+    # type, and adding another produced $1::halfvec::halfvec.
+    assert candidates.count("::halfvec") == 1
     assert cfg.ops_class == "halfvec_l2_ops"
 
-    # TODO: the cast is emitted twice ("$1::halfvec::halfvec") because Params.add_cast
-    # already casts to Config.vector_type and _distance_expr casts again. Postgres accepts
-    # it and the plan is identical, but it is noise in SQL that people copy out of the
-    # README. Documented here rather than fixed, so the redundancy is at least deliberate.
-    assert candidates.count("$1::halfvec::halfvec") == 3
+    # Was "$1::halfvec::halfvec": Params.add_cast already casts to Config.vector_type
+    # and _distance_expr cast again. Postgres accepted it and the plan was identical,
+    # but it read as a mistake in SQL people copy out of the README.
+    assert "::halfvec::halfvec" not in candidates
 
 
 def test_default_vector_type_casts_to_vector(config: Config) -> None:
@@ -721,13 +725,26 @@ def test_candidate_limit_of_zero_falls_back_to_the_config(make_config: Any) -> N
 
 
 def test_each_candidate_cte_orders_and_limits_independently(config: Config) -> None:
-    """Both signals must contribute a full candidate list, ranked on their own terms."""
+    """Both signals must contribute a full candidate list, ranked on their own terms.
+
+    Each CTE limits first and ranks the survivors. Ranking inside the limited SELECT
+    would force the window over every matching row before the limit could apply, which
+    stops an index scan from finishing early.
+    """
     sql, _ = build_search_sql(config, embedding=[0.1], text="renewal", limit=5)
     vector = cte(sql, "vector_candidates")
     text = cte(sql, "text_candidates")
-    assert 'ORDER BY "embedding" <=>' in vector
-    assert "rank() OVER (ORDER BY" in vector
-    assert "DESC" in text and "rank() OVER (ORDER BY" in text
+
+    assert "rank() OVER (ORDER BY distance) AS rank" in vector
+    assert "rank() OVER (ORDER BY score DESC) AS rank" in text
+
+    # The tiebreaker is what makes the cut-off reproducible; ts_rank_cd ties heavily.
+    assert "ORDER BY distance, id" in vector
+    assert "ORDER BY score DESC, id" in text
+
+    # The window must sit outside the subquery that carries the LIMIT.
+    for candidates in (vector, text):
+        assert candidates.index("rank() OVER") < candidates.index("LIMIT")
 
 
 def test_results_are_ordered_by_the_final_score_with_a_stable_tiebreak(config: Config) -> None:
