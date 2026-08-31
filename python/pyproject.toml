@@ -68,6 +68,9 @@ pghybrid = "pghybrid.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pghybrid"]
+# PEP 561. Without this marker a consumer's type checker ignores the annotations
+# entirely and reports every symbol as Any, however strictly the package checks itself.
+artifacts = ["src/pghybrid/py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -12,6 +12,7 @@ only says "invalid" costs the reader a trip to the source.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 
 import pytest
 
@@ -373,3 +374,21 @@ class TestFieldsThatAreInterpolatedIntoTheStatement:
         sql, params = build_search_sql(cfg, embedding=None, text="hi", limit=5, highlight=True)
         assert "DROP TABLE" not in sql
         assert hostile in params
+
+
+def test_the_package_ships_its_typing_marker() -> None:
+    """PEP 561: without py.typed a consumer's type checker reports every symbol as Any.
+
+    The package is annotated throughout and checks itself under mypy --strict, and
+    pyproject declares the Typing :: Typed classifier — none of which reaches a user
+    without this file. It shipped without one, so the classifier was a claim the wheel
+    did not honour and every downstream `reveal_type` came back Any.
+    """
+    import pghybrid
+
+    package_root = pathlib.Path(pghybrid.__file__).parent
+    marker = package_root / "py.typed"
+    assert marker.exists(), (
+        "py.typed is missing, so type checkers will ignore this package's annotations "
+        "however strictly it checks itself"
+    )
