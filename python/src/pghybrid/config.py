@@ -96,6 +96,19 @@ class Recency:
 
     ``half_life_days`` is the age at which a row's score is halved. Rows with a NULL
     timestamp are left undecayed rather than dropped.
+
+    Decay **reranks the candidates, it does not retrieve them.** Both signals pick their
+    top ``Config.candidate_limit`` rows on relevance alone, and the decay is applied to
+    that pool afterwards, so a very recent row that no signal ranked highly cannot
+    surface however aggressive the half-life is. Measured on a 300-row table with a
+    one-day half-life and one row published today at relevance rank 250: invisible at
+    ``candidate_limit=20``, first at ``candidate_limit=300``.
+
+    That is deliberate. Retrieving on recency would mean a third candidate set ordered by
+    timestamp — which returns recent rows nobody searched for — or scanning the table,
+    which is what the indexes exist to avoid. If recent-but-unrelated rows genuinely
+    belong in your results, raise ``candidate_limit`` until the pool is wide enough to
+    contain them, and expect to pay for the wider scan.
     """
 
     column: str

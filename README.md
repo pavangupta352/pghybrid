@@ -437,7 +437,7 @@ Three things in it are load-bearing:
 | `max_query_terms` | `200` | terms taken from one query under `"any"` matching. Repeats are collapsed first; past ~4,200 OR-ed terms Postgres reports a stack depth limit, which is not a useful thing to show someone who pasted a document into a search box |
 | `metric` | `cosine` | `cosine`, `l2`, `inner_product`, `l1` |
 | `vector_type` | `"vector"` | `"halfvec"` halves index size and build time, usually free on recall |
-| `recency` | `None` | `Recency(column, half_life_days)` — exponential decay on the fused score |
+| `recency` | `None` | `Recency(column, half_life_days)` — exponential decay on the fused score. It **reranks the candidate pool, it does not retrieve**: both signals pick their top `candidate_limit` rows on relevance alone and the decay applies afterwards, so a row published today that no signal ranked highly cannot surface at any half-life. Raise `candidate_limit` if it needs to |
 | `paramstyle` | `"numeric"` | `$1` for asyncpg / node-postgres / raw SQL, `"pyformat"` (`%s`) for psycopg |
 | `filter_columns` | `[]` | columns you may filter on; anything else is rejected rather than interpolated |
 

@@ -278,6 +278,65 @@ def test_recency_decay_leaves_null_and_future_rows_alone(connection, config):
         connection.execute("UPDATE chunks SET created_at = now()")
 
 
+def test_recency_reranks_the_candidate_pool_and_does_not_retrieve(connection):
+    """The documented limitation, pinned so the documentation stays true.
+
+    Decay is applied after both signals have chosen their candidates on relevance alone,
+    so a row published today that no signal ranked highly cannot surface at any
+    half-life. Someone who sets half_life_days=1 will assume otherwise, which is why the
+    Recency docstring and the README both say it and why this measures it.
+
+    Not a defect: retrieving on recency would mean a third candidate set ordered by
+    timestamp, which returns recent rows nobody searched for. candidate_limit is the
+    lever, and the second half of this test is what makes that advice actionable.
+    """
+    import math
+
+    connection.execute("DROP TABLE IF EXISTS recency_probe")
+    connection.execute(
+        "CREATE TABLE recency_probe ("
+        "  id bigserial PRIMARY KEY, content text NOT NULL,"
+        "  embedding vector(2), created_at timestamptz,"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        # Points on an arc, so relevance rank is the row number: id 1 is nearest.
+        for i in range(300):
+            angle = i * 0.004
+            connection.execute(
+                "INSERT INTO recency_probe (content, embedding, created_at) VALUES "
+                "(%s, %s::vector, now() - interval '400 days')",
+                (
+                    f"contract clause number {i} about renewal notice",
+                    f"[{math.cos(angle)},{math.sin(angle)}]",
+                ),
+            )
+        # One row published today, deliberately far down the relevance ranking.
+        connection.execute("UPDATE recency_probe SET created_at = now() WHERE id = 251")
+
+        def top_ids(candidate_limit: int) -> list[int]:
+            cfg = Config(
+                table="recency_probe",
+                text_column="content",
+                vector_column="embedding",
+                tsvector_column="fts",
+                paramstyle="pyformat",
+                recency=Recency(column="created_at", half_life_days=1.0),
+                candidate_limit=candidate_limit,
+            )
+            search = HybridSearch(cfg, execute=lambda sql, p: connection.execute(sql, p).fetchall())
+            return [r.id for r in search.search("renewal notice", embedding=[1.0, 0.0], limit=3)]
+
+        assert 251 not in top_ids(20), (
+            "a row 400 days younger than every other one surfaced from outside the "
+            "candidate pool, so decay is retrieving rather than reranking"
+        )
+        assert top_ids(300)[0] == 251, "widening the pool is the documented lever"
+    finally:
+        connection.execute("DROP TABLE IF EXISTS recency_probe")
+
+
 def test_highlight_marks_the_matched_terms(search):
     rows = search.search(DEMO_QUERY, embedding=query_vector(), limit=3, highlight=True)
     assert any("<mark>" in (r.highlight or "") for r in rows)

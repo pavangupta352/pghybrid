@@ -59,6 +59,13 @@ First release.
   injection surface. Found and fixed before release.
 
 ### Notes on defaults
+- `recency` reranks the candidate pool; it does not retrieve. Both signals choose their
+  top `candidate_limit` rows on relevance alone and the decay is applied afterwards, so a
+  row published today that no signal ranked highly cannot surface at any half-life.
+  Measured: with a one-day half-life on 300 rows, a row published today at relevance rank
+  250 is invisible at `candidate_limit=20` and first at `candidate_limit=300`. Retrieving
+  on recency would mean a third candidate set ordered by timestamp, which returns recent
+  rows nobody searched for.
 - Query terms are OR-ed (`text_match="any"`). Postgres' parsers AND by default, which
   makes multi-word queries match nothing and silently reduces hybrid search to
   vector-only search.
