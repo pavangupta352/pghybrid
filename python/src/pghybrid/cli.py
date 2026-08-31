@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any, Optional
 
-from .config import Config, Recency, Weights
+from .config import RESERVED_OUTPUT_NAMES, Config, Recency, Weights
 from .doctor import doctor
 from .explain import explain
 from .schema import (
@@ -32,7 +32,7 @@ from .schema import (
     suggest_config,
 )
 from .search import HybridSearch
-from .sql import IdentifierError, build_search_sql
+from .sql import build_search_sql
 from .textquery import parse_query
 
 PROGRAM = "pghybrid"
@@ -153,6 +153,21 @@ def _resolve_config(connection: Any, args: argparse.Namespace) -> Config:
             raise CliError(
                 "--recency takes a column and a half-life in days, e.g. --recency created_at,90"
             ) from exc
+
+    # A label is only printable if its column is actually selected, so --label has to
+    # reach the config rather than stay a printing detail. Before this, --label aux on a
+    # table where introspection had not already chosen aux printed "None" for every row,
+    # which reads as broken data rather than as an unselected column.
+    label = getattr(args, "label", None)
+    if label and label not in RESERVED_OUTPUT_NAMES:
+        selected_text = overrides.get("text_column", config.text_column)
+        if info.column(label) is None:
+            raise CliError(
+                f"--label {label!r}: {info.qualified} has no such column. "
+                f"Columns: {', '.join(c.name for c in info.columns) or 'none'}."
+            )
+        if label != selected_text and label not in config.extra_columns:
+            overrides["extra_columns"] = [*config.extra_columns, label]
 
     # psycopg is the only driver the CLI opens for itself, and it wants %s.
     overrides["paramstyle"] = "pyformat"
@@ -284,7 +299,9 @@ def command_search(args: argparse.Namespace) -> int:
         )
         return 0
 
-    label = args.label or config.extra_columns[0] if config.extra_columns else None
+    # Parenthesised because the bare or/if chain binds as (a or b) if c else None,
+    # which discarded an explicit --label whenever no extra columns were selected.
+    label = args.label or (config.extra_columns[0] if config.extra_columns else None)
     for position, result in enumerate(results, 1):
         text = result.get(label) if label else result.get(config.text_column)
         print(f"  {position:>3}  {result.score:.6f}  {str(text)[:88]}")
@@ -450,11 +467,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         return int(args.func(args) or 0)
-    except (CliError, TableNotFound, IdentifierError) as exc:
-        # These already carry a message written for a person, a traceback on top of
-        # "relation 'nope' does not exist" only buries it.
+    except (CliError, TableNotFound, ValueError) as exc:
+        # These already carry a message written for a person: CliError and TableNotFound
+        # by construction, and ValueError is how the library itself refuses bad input
+        # (IdentifierError included). Every one of those sentences was arriving under a
+        # traceback, which buries exactly the text that was written to help.
         print(f"{PROGRAM}: {exc}", file=sys.stderr)
         return 2
+    except Exception as exc:
+        # A server-side refusal (wrong vector dimensions, a permission, a timeout) is
+        # also a sentence for a person, not a stack of frames. Matched by module rather
+        # than by import so the CLI module still loads where psycopg is absent.
+        if type(exc).__module__.split(".")[0] == "psycopg":
+            print(f"{PROGRAM}: database error: {exc}", file=sys.stderr)
+            return 2
+        raise
     except BrokenPipeError:  # pragma: no cover - piping into head and similar
         return 0
     except KeyboardInterrupt:  # pragma: no cover

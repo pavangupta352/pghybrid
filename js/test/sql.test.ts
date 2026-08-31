@@ -838,6 +838,29 @@ describe("limits and the candidate budget", () => {
     expect([...pools]).toEqual([100]);
   });
 
+  it("refuses a non-finite embedding by position", () => {
+    // NaN and Infinity survive coercion and fail server-side with an error naming
+    // neither the argument nor the index. NaN is the dangerous one: if it ever got
+    // through, every comparison with it is false and the ordering would be arbitrary.
+    for (const [bad, index] of [
+      [[0.1, NaN], 1],
+      [[Infinity], 0],
+      [[-Infinity], 0],
+    ] as const) {
+      expect(() =>
+        buildSearchSql(makeConfig(), { embedding: [...bad], limit: 5 }),
+      ).toThrow(new RegExp(`index ${index} is not finite`));
+    }
+  });
+
+  it("refuses a negative nearMiss", () => {
+    // It flows into the final LIMIT as limit + nearMiss, and a negative LIMIT is a
+    // server error that names neither argument.
+    expect(() =>
+      buildSearchSql(makeConfig(), { embedding: [0.1], limit: 5, nearMiss: -1 }),
+    ).toThrow(/nearMiss must be >= 0/);
+  });
+
   it("refuses a page outside the candidate pool", () => {
     // An empty page is indistinguishable from having reached the end of the results.
     expect(() =>

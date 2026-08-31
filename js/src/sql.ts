@@ -361,6 +361,11 @@ export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuer
   if (offset < 0) {
     throw new Error("offset must be >= 0");
   }
+  if (nearMiss < 0) {
+    // It flows into the final LIMIT as limit + nearMiss, and a negative LIMIT is a
+    // server error that names neither argument.
+    throw new Error("nearMiss must be >= 0");
+  }
 
   const fusion = options.fusion || cfg.fusion;
   // A zero candidate limit is treated as "not supplied" rather than as an out-of-range
@@ -717,7 +722,17 @@ export function formatVector(embedding: readonly number[]): string {
   if (embedding === null || embedding === undefined) {
     throw new Error("embedding must not be null");
   }
-  return `[${Array.from(embedding, (value) => formatFloat(toNumber(value))).join(",")}]`;
+  return `[${Array.from(embedding, (value, index) => {
+    const coerced = toNumber(value);
+    // NaN and Infinity survive coercion, and pgvector rejects both server-side with an
+    // error that names neither the argument nor the position. NaN is the worse one:
+    // every comparison with it is false, so if it ever got through, the ordering would
+    // be garbage rather than an error.
+    if (!Number.isFinite(coerced)) {
+      throw new Error(`embedding must contain only finite numbers; index ${index} is not finite`);
+    }
+    return formatFloat(coerced);
+  }).join(",")}]`;
 }
 
 /**

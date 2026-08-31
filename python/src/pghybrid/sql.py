@@ -297,6 +297,10 @@ def build_search_sql(
         raise ValueError("limit must be >= 1")
     if offset < 0:
         raise ValueError("offset must be >= 0")
+    if near_miss < 0:
+        # It flows into the final LIMIT as limit + near_miss, and a negative LIMIT is a
+        # server error that names neither argument.
+        raise ValueError("near_miss must be >= 0")
 
     fusion = fusion or cfg.fusion
     candidate_limit = candidate_limit or cfg.candidate_limit
@@ -586,6 +590,17 @@ def _format_vector(embedding: list[float]) -> str:
     if embedding is None:
         raise ValueError("embedding must not be None")
     try:
-        return "[" + ",".join(repr(float(x)) for x in embedding) + "]"
+        values = [float(x) for x in embedding]
     except (TypeError, ValueError) as exc:
         raise ValueError(f"embedding must be a sequence of numbers: {exc}") from exc
+    for index, value in enumerate(values):
+        # NaN and infinity survive float() and JSON parsers that accept them, and
+        # pgvector rejects both server-side with an error that names neither the
+        # argument nor the position. NaN is the worse one: every comparison with it is
+        # false, so if it ever got through, the ordering would be garbage rather than
+        # an error.
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError(
+                f"embedding must contain only finite numbers; index {index} is not finite"
+            )
+    return "[" + ",".join(repr(value) for value in values) + "]"

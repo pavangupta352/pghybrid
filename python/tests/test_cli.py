@@ -267,6 +267,72 @@ def test_doctor_is_read_only(capsys, connection_for_cli):
     assert "read-only" in capsys.readouterr().out
 
 
+@with_database
+def test_the_librarys_own_refusals_are_messages_not_tracebacks(capsys):
+    """The library raises ValueError with a sentence written for a person, and the CLI
+    was printing that sentence underneath a traceback, which is exactly where a person
+    stops reading. A query of only exclusions with no embedding is the cleanest case:
+    the message tells you the two ways to fix it."""
+    assert run("search", "--table", TABLE, "--", "-pricing") == 2
+    error = capsys.readouterr().err
+    assert "only excludes terms" in error
+    assert "Traceback" not in error
+
+
+@with_database
+def test_a_non_finite_embedding_is_refused_with_its_index(capsys):
+    """json.loads accepts NaN and Infinity, float() keeps them, and pgvector rejects
+    them server-side with an error naming neither the argument nor the position. NaN is
+    the worst case because if it ever got through, every comparison with it is false and
+    the ordering is garbage rather than an error."""
+    assert run("search", "x", "--table", TABLE, "--embedding", "[0.1, NaN]") == 2
+    error = capsys.readouterr().err
+    assert "finite" in error and "index 1" in error
+    assert "Traceback" not in error
+
+
+@with_database
+def test_a_server_side_refusal_is_a_message_not_a_traceback(capsys):
+    """Wrong dimensions only fail once the statement reaches the server, so this is the
+    path the ValueError catch cannot cover and the database-error catch must."""
+    assert run("search", "x", "--table", TABLE, "--embedding", "[1, 2]") == 2
+    error = capsys.readouterr().err
+    assert "database error" in error and "dimensions" in error
+    assert "Traceback" not in error
+
+
+@with_database
+def test_label_selects_the_column_it_names(capsys, connection_for_cli):
+    """--label aux printed None for every row when introspection had not already chosen
+    aux as an extra column, which reads as broken data rather than as an unselected
+    column. The flag now puts the column into the selection."""
+    connection_for_cli.execute("DROP TABLE IF EXISTS cli_label_probe")
+    connection_for_cli.execute(
+        "CREATE TABLE cli_label_probe (id bigserial PRIMARY KEY, content text NOT NULL,"
+        " aux text, embedding vector(8))"
+    )
+    try:
+        connection_for_cli.execute(
+            "INSERT INTO cli_label_probe (content, aux, embedding) "
+            "VALUES ('renewal notice clause', 'AUXVALUE', %s::vector)",
+            ("[" + ",".join(["0.1"] * 8) + "]",),
+        )
+        assert run("search", "renewal", "--table", "cli_label_probe", "--label", "aux") == 0
+        out = capsys.readouterr().out
+        assert "AUXVALUE" in out
+        assert "None" not in out
+    finally:
+        connection_for_cli.execute("DROP TABLE IF EXISTS cli_label_probe")
+
+
+@with_database
+def test_a_label_that_names_no_column_says_which_columns_exist(capsys):
+    assert run("search", "x", "--table", TABLE, "--label", "nope") == 2
+    error = capsys.readouterr().err
+    assert "no such column" in error and "title" in error
+    assert "Traceback" not in error
+
+
 # ------------------------------------------------------------------------- error paths
 
 

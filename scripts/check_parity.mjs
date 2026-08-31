@@ -348,7 +348,22 @@ function toPythonFixture({ name, config, call }) {
  * builder calls float() on every coordinate anyway.
  */
 function forJson(value) {
-  return Object.is(value, -0) ? "-0.0" : value;
+  if (Object.is(value, -0)) {
+    return "-0.0";
+  }
+  // JSON.stringify writes NaN and the infinities as null, which Python would then
+  // reject as "float() argument must be..." rather than with the message under test.
+  // Python's float() parses these spellings back to the same non-finite values.
+  if (Number.isNaN(value)) {
+    return "nan";
+  }
+  if (value === Infinity) {
+    return "inf";
+  }
+  if (value === -Infinity) {
+    return "-inf";
+  }
+  return value;
 }
 
 // ---------------------------------------------------------------------------------
@@ -429,6 +444,11 @@ const ERROR_FIXTURES = [
   fixture("error-limit-zero", {}, { embedding: [0.1], limit: 0 }),
   fixture("error-limit-negative", {}, { embedding: [0.1], limit: -1 }),
   fixture("error-negative-offset", {}, { embedding: [0.1], limit: 5, offset: -1 }),
+  fixture("error-negative-near-miss", {}, { embedding: [0.1], limit: 5, nearMiss: -1 }),
+  // NaN and Infinity survive JSON parsers that accept them and float() alike, and
+  // pgvector rejects both server-side with an error naming neither argument nor index.
+  fixture("error-nan-embedding", {}, { embedding: [0.1, NaN], limit: 5 }),
+  fixture("error-infinite-embedding", {}, { embedding: [-Infinity], limit: 5 }),
   // A page outside the candidate pool. Widening the pool per page would reorder every
   // page, so this is an error rather than an empty result.
   fixture("error-page-past-the-pool", {}, { embedding: [0.1], limit: 10, offset: 50 }),

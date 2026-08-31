@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The CLI prints a sentence instead of a traceback for every refusal it already had a
+  sentence for. The library raises `ValueError` with a message written for a person, and
+  `main()` was not catching it, so "only excludes terms, so there is nothing to rank"
+  arrived buried under fifteen stack frames. Server-side refusals (wrong vector
+  dimensions, permissions, timeouts) are reported the same way, as `database error: ...`.
+- Both builders refuse a non-finite embedding, naming the index. `json.loads` accepts
+  `NaN` and `Infinity`, `float()` keeps them, and pgvector rejects them server-side with
+  an error naming neither the argument nor the position. NaN was the dangerous one: had
+  it ever got through, every comparison with it is false and the ordering would have been
+  silently arbitrary rather than an error.
+- Both builders refuse a negative `near_miss`, which flowed into the final `LIMIT` as
+  `limit + near_miss` and produced a server error naming neither argument.
+- `--label` selects the column it names. It used to be a printing detail, so labelling a
+  column introspection had not already chosen printed `None` for every row, which reads
+  as broken data. A label that names no column now says so and lists the columns; an
+  operator-precedence slip that discarded an explicit `--label` whenever no extra columns
+  were selected is also fixed.
+- `init` on a table under a thousand rows shows arithmetic that is true: "500 rows / 1000
+  rounds to 0, so 1 list (the minimum)" rather than "= 1 lists", which claimed a division
+  that never produced it.
+
 ## [0.1.1] - 2026-08-31
 
 ### Security

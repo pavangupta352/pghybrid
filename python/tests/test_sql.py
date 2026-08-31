@@ -685,6 +685,23 @@ def test_recency_column_is_quoted(make_config: Any) -> None:
 # --------------------------------------------------------------------------------------
 
 
+def test_a_non_finite_embedding_is_refused_by_position(config: Config) -> None:
+    """NaN would not error at the server the way infinity does in spirit: it would
+    still error, but if it ever got through, every comparison with it is false and the
+    ordering would be silently arbitrary. Both are refused client-side, with the index,
+    which is what the server's message lacks."""
+    for bad, index in (([0.1, float("nan")], 1), ([float("inf")], 0), ([float("-inf")], 0)):
+        with pytest.raises(ValueError, match=f"index {index} is not finite"):
+            build_search_sql(config, embedding=bad, text=None, limit=5)
+
+
+def test_a_negative_near_miss_is_refused(config: Config) -> None:
+    """It flows into the final LIMIT as limit + near_miss, and a negative LIMIT is a
+    server error that names neither argument."""
+    with pytest.raises(ValueError, match="near_miss must be >= 0"):
+        build_search_sql(config, embedding=[0.1], text=None, limit=5, near_miss=-1)
+
+
 def test_near_miss_extends_the_final_limit(config: Config) -> None:
     """The rows that just missed the cut are usually why a search "failed"."""
     sql, params = build_search_sql(
