@@ -17,10 +17,11 @@ import os
 import pathlib
 import random
 import sys
+from dataclasses import replace
 
 import pytest
 
-from pghybrid import Config, Recency, Weights
+from pghybrid import AsyncHybridSearch, Config, Recency, Weights
 from pghybrid.doctor import doctor
 from pghybrid.explain import explain
 from pghybrid.schema import build_migration, dbapi_executor, introspect, suggest_config
@@ -1221,6 +1222,54 @@ async def test_asyncpg_adapter_matches_the_sync_result():
     finally:
         await conn.close()
     assert titles(results) == [PLANTED_TITLE, "Renewal pricing", "Renewal terms"]
+
+
+@pytest.mark.asyncio
+async def test_the_async_client_agrees_with_the_sync_one_feature_by_feature(connection, config):
+    """Two clients over one builder still drift if nobody checks, and the features added
+    most recently are the ones least likely to have been checked on both paths.
+
+    Compares rows, highlights and matched_by across exclusions, an exclusion-only query,
+    escaped highlighting and a second page, then compares the refusals, which are easier
+    to let diverge than the results because nobody looks at them.
+    """
+    asyncpg = pytest.importorskip("asyncpg")
+
+    conn = await asyncpg.connect(DSN)
+    try:
+        sync_search = HybridSearch(
+            config, execute=lambda sql, p: connection.execute(sql, p).fetchall()
+        )
+        async_search = AsyncHybridSearch(
+            replace(config, paramstyle="numeric"),
+            execute=lambda sql, p: conn.fetch(sql, *p),
+        )
+        vector = query_vector()
+
+        for kwargs in (
+            {"text": f"{DEMO_QUERY} -pricing", "embedding": vector, "limit": 5},
+            {"text": "-pricing", "embedding": vector, "limit": 5},
+            {"text": DEMO_QUERY, "embedding": vector, "limit": 3, "highlight": True},
+            {"text": DEMO_QUERY, "embedding": vector, "limit": 3, "offset": 3},
+        ):
+            here = sync_search.search(**kwargs)
+            there = await async_search.search(**kwargs)
+            assert [r.id for r in here] == [r.id for r in there], kwargs
+            assert [r.highlight for r in here] == [r.highlight for r in there], kwargs
+            assert [r.matched_by for r in here] == [r.matched_by for r in there], kwargs
+
+        for kwargs in (
+            {"text": DEMO_QUERY, "embedding": vector, "limit": 10, "offset": 60},
+            {"text": DEMO_QUERY, "embedding": [float("nan")] * 8, "limit": 3},
+            {"text": "and or", "embedding": None, "limit": 3},
+        ):
+            with pytest.raises(ValueError) as here:
+                sync_search.search(**kwargs)
+            with pytest.raises(ValueError) as there:
+                await async_search.search(**kwargs)
+            assert str(here.value) == str(there.value), kwargs
+    finally:
+        await conn.close()
 
 
 # ---------------------------------------------------------------- non-English corpora
