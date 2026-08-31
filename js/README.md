@@ -14,6 +14,7 @@ Zero runtime dependencies. `pghybrid` generates SQL and hands it to the driver y
 already use — node-postgres, postgres.js, Drizzle, Supabase. It never opens a connection
 of its own and never calls an embedding provider.
 
+<!-- check:ts -->
 ```ts
 import { HybridSearch } from "pghybrid";
 

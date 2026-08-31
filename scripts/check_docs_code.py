@@ -42,7 +42,14 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: Every page whose code a reader is expected to copy. The guides address people who are
 #: migrating, which is the audience least willing to forgive a broken example.
-PAGES = [ROOT / "README.md", *sorted((ROOT / "docs" / "guides").glob("*.md"))]
+PAGES = [
+    ROOT / "README.md",
+    # The registry landing pages. These are the first thing a visitor from PyPI or npm
+    # search reads, and they carry their own copies of the quickstart.
+    ROOT / "python" / "README.md",
+    ROOT / "js" / "README.md",
+    *sorted((ROOT / "docs" / "guides").glob("*.md")),
+]
 FIXTURES = ROOT / "scripts" / "doc_fixtures.sql"
 # CI runs Postgres on 5432 and docker-compose maps it to 55432 locally, so this has to
 # come from the environment like every other script here does.
