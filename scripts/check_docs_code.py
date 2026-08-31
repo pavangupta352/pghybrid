@@ -52,8 +52,10 @@ DSN = os.environ.get(
 )
 
 BLOCK = re.compile(
-    r"<!-- check:(?P<kind>python|ts) -->\n```(?:python|ts)\n(?P<body>.*?)```", re.DOTALL
+    r"<!-- check:(?P<kind>python|ts|sql) -->\n```(?:python|ts|sql)\n(?P<body>.*?)```", re.DOTALL
 )
+
+ASSERTS = ROOT / "scripts" / "doc_asserts"
 
 #: Names the Python blocks use without defining, because defining them would be noise on
 #: a page someone is reading to learn. They are what a reader is expected to already have:
@@ -205,12 +207,76 @@ def check_ts(workspace: pathlib.Path) -> None:
                if result.returncode else "")
 
 
+def check_sql() -> None:
+    """Run a page's SQL blocks in order, then whatever asserts they hold.
+
+    The Supabase guide ships a hand-written copy of the query this library generates,
+    which makes it the most likely thing in the documentation to drift: the generated SQL
+    is checked from every direction and nothing at all ran that function.
+
+    Each page gets its own schema, because the blocks create tables under names the rest
+    of this script also uses, and a guide that says `create table documents` should be
+    run exactly as written rather than edited to suit the harness.
+    """
+    import psycopg
+
+    pages = {}
+    for page, body in blocks("sql"):
+        pages.setdefault(page, []).append(body)
+
+    print(f"\nSQL blocks ({sum(len(v) for v in pages.values())})")
+    if not pages:
+        return
+
+    for page, bodies in pages.items():
+        schema = "doc_" + re.sub(r"[^a-z0-9]+", "_", pathlib.Path(page).stem.lower())
+        try:
+            with psycopg.connect(DSN, autocommit=True) as connection:
+                connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+                connection.execute(f'CREATE SCHEMA "{schema}"')
+                connection.execute(f'SET search_path = "{schema}", public')
+                for body in bodies:
+                    connection.execute(body)
+                report(f"{page}: {len(bodies)} block(s) run", True)
+
+                assertion = ASSERTS / f"{pathlib.Path(page).stem}.sql"
+                if not assertion.exists():
+                    report(f"{page}: has assertions", False, f"expected {assertion.name}")
+                    continue
+                # Every statement that returns rows must return true in the first column.
+                # Statements that return nothing are the seeding the assertions need, and
+                # are simply run: cursor.description is None for those.
+                failed = []
+                checked = 0
+                for number, statement in enumerate(
+                    [s for s in assertion.read_text().split(";\n") if s.strip()], 1
+                ):
+                    cursor = connection.execute(statement)
+                    if cursor.description is None:
+                        continue
+                    checked += 1
+                    rows = cursor.fetchall()
+                    if not rows or not all(row[0] is True for row in rows):
+                        failed.append(str(number))
+                if not checked:
+                    failed.append("none of the statements returned anything to check")
+                report(
+                    f"{page}: {checked} assertion(s) hold",
+                    not failed,
+                    f"statement(s) {', '.join(failed)} were not true" if failed else "",
+                )
+                connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        except Exception as exc:  # noqa: BLE001 - the message is the useful part
+            report(f"{page}: SQL", False, str(exc).strip().splitlines()[0][:120])
+
+
 def main() -> int:
     print("Running the code the documentation tells people to copy.")
     load_fixtures()
     with tempfile.TemporaryDirectory() as directory:
         workspace = pathlib.Path(directory)
         check_python(workspace)
+        check_sql()
         if shutil.which("npm"):
             check_ts(workspace)
         else:

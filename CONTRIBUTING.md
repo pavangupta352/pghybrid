@@ -26,7 +26,9 @@ scripts/check_all.sh          # or: scripts/check_all.sh fast, to skip the packa
 ```
 
 A documentation code block is checked if the line before its fence is `<!-- check:python -->` or
-`<!-- check:ts -->`, which renders as nothing on GitHub. Add the marker to any block a
+`<!-- check:ts -->` or `<!-- check:sql -->`, which render as nothing on GitHub. SQL blocks
+run in order in a schema of their own, followed by `scripts/doc_asserts/<page>.sql` if it
+exists — every statement there that returns rows must return `true` in the first column. Add the marker to any block a
 reader is meant to copy and run; leave it off fragments that are illustrative rather than
 runnable, like the list of four adapters assigning the same name four times.
 

@@ -72,6 +72,12 @@ First release.
   5 recommends, and then fails on line 1. `scripts/check_docs_code.py` executes the
   Python blocks against tables the guides describe and typechecks the TypeScript ones
   against the packed tarball.
+- The Supabase guide's `hybrid_search` function is executed in CI. It is a hand-written
+  copy of the query this library generates, which makes it the documentation most likely
+  to drift — the generated SQL is checked from every direction and nothing at all ran
+  that function. Five assertions cover it, including that a row found by both signals
+  scores above `1/(k+1)`, which is what catches a fusion reduced to one signal or an RRF
+  numerator written as an integer.
 - `explain(find=...)` names an exclusion as the reason a row is missing. It used to see a
   row that was #1 on both signals and absent from the result, conclude it had lost the
   fused ordering, and advise raising `candidate_limit` — a knob that can never bring back

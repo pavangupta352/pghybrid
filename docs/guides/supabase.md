@@ -15,6 +15,7 @@ Everything here runs in the Supabase SQL editor. Nothing needs to be installed.
 
 If you already have a table with embeddings, skip to step 2. Otherwise:
 
+<!-- check:sql -->
 ```sql
 create extension if not exists vector;
 
@@ -29,6 +30,7 @@ create table documents (
 
 ## 2. Add the search column and indexes
 
+<!-- check:sql -->
 ```sql
 alter table documents
   add column if not exists fts tsvector
@@ -60,6 +62,7 @@ corpora.
 
 This is the whole thing. Create it once and call it as an RPC.
 
+<!-- check:sql -->
 ```sql
 create or replace function hybrid_search(
   query_text      text,
