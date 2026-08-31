@@ -154,6 +154,26 @@ jobs:
           python/.venv/bin/python examples/three_way_comparison.py
           python/.venv/bin/python examples/langchain_retriever.py
 
+  packaging:
+    name: the artifacts install and work from empty environments
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Every other job runs against the working tree, which cannot catch a file that
+      # exists in the repo and never reaches the artifact. py.typed was exactly that:
+      # the package checked itself under mypy --strict and shipped no marker, so every
+      # consumer saw Any.
+      - name: Install both toolchains
+        run: |
+          cd python && uv venv && uv pip install -e ".[dev]" && cd ..
+          cd js && npm ci && cd ..
+      - name: Build, install and use both packages as a stranger would
+        run: python/.venv/bin/python scripts/check_packaging.py
+
   gitleaks:
     name: secret scan
     runs-on: ubuntu-latest
