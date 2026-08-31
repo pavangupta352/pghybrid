@@ -19,6 +19,16 @@ cd js && npm install && npm test
 Tests marked `integration` need the database; the rest are pure functions of a `Config`
 and run anywhere.
 
+Before opening a pull request, run everything CI runs, in the order CI runs it:
+
+```bash
+scripts/check_all.sh          # or: scripts/check_all.sh fast, to skip the packaging build
+```
+
+Worth using rather than running the pieces you remember. `npm test` does not typecheck —
+vitest strips the types — so a type error in a test file passes locally and fails CI, and
+the parity, README-output and packaging checks are easy to forget entirely.
+
 ## What makes a change easy to accept
 
 **The two implementations must agree.** Python and TypeScript generate the same SQL, and

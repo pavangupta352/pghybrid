@@ -792,7 +792,7 @@ describe("limits and the candidate budget", () => {
     // worse than the empty page: rows enter the text candidates as the pool grows, gain a
     // text contribution and jump the fused ordering, so paging 8x10 returned 71 distinct
     // rows instead of 80 with 9 that a single limit=80 query returns never shown at all.
-    const pools = new Set<number>();
+    const pools = new Set<unknown>();
     for (const offset of [0, 10, 50, 89, 90]) {
       const { sql, params } = buildSearchSql(makeConfig({ candidateLimit: 100 }), {
         embedding: [0.1],
