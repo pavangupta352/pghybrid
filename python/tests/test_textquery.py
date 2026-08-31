@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from pghybrid import Config
 from pghybrid.sql import build_search_sql
 from pghybrid.textquery import ParsedQuery, parse_query
 
@@ -295,3 +296,41 @@ def test_quoted_phrase_becomes_one_parser_call_but_loses_its_adjacency(
     sql, params = build_search_sql(cfg, embedding=None, text='renewal "notice period"', limit=5)
     assert tsquery_expression(sql).count("websearch_to_tsquery('english', $") == 2
     assert params[:2] == ["renewal", "notice period"]
+
+
+class TestRepeatsAndLongQueries:
+    """Two failure modes that only appear when someone pastes text into a search box."""
+
+    def test_repeated_terms_are_collapsed(self) -> None:
+        """`a | a` is `a`, so a repeat only makes the statement bigger."""
+        parsed = parse_query("renewal Renewal RENEWAL notice renewal")
+        assert parsed.positive == ["renewal", "notice"]
+
+    def test_the_first_spelling_of_a_repeated_term_is_kept(self) -> None:
+        """Deduplication folds case to compare but must not rewrite what it keeps."""
+        assert parse_query("Renewal renewal").positive == ["Renewal"]
+
+    def test_positive_and_negative_terms_deduplicate_separately(self) -> None:
+        parsed = parse_query("renewal renewal -pricing -pricing")
+        assert parsed.positive == ["renewal"]
+        assert parsed.negative == ["pricing"]
+
+    def test_a_pasted_document_does_not_blow_the_parser_stack(self, make_config: Any) -> None:
+        """Past roughly 4,200 OR-ed parser calls Postgres reports a stack depth limit.
+
+        The message reads like an internal error rather than "that query was too long",
+        so the terms are capped before the statement is built. ts_rank_cd over hundreds
+        of terms has long since stopped discriminating, so nothing of value is lost.
+        """
+        cfg = make_config(tsvector_column="fts", max_query_terms=200)
+        query = " ".join(f"term{i}" for i in range(10_000))
+        sql, params = build_search_sql(cfg, embedding=None, text=query, limit=5)
+        assert sql.count("websearch_to_tsquery") == 200
+        assert len([p for p in params if isinstance(p, str) and p.startswith("term")]) == 200
+
+    def test_the_cap_is_configurable_and_validated(self) -> None:
+        cfg = Config(table="c", text_column="content", vector_column="e", max_query_terms=3)
+        sql, _ = build_search_sql(cfg, embedding=None, text="a b c d e f", limit=5)
+        assert sql.count("websearch_to_tsquery") == 3
+        with pytest.raises(ValueError, match="max_query_terms"):
+            Config(table="c", text_column="content", vector_column="e", max_query_terms=0)

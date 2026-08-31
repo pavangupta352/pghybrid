@@ -207,11 +207,12 @@ function tsqueryExpr(cfg: ResolvedConfig, text: string, params: Params): string 
     return call(text);
   }
 
-  let expression = parsed.positive.map(call).join(" || ");
-  if (parsed.positive.length > 1) {
+  const positive = parsed.positive.slice(0, cfg.maxQueryTerms);
+  let expression = positive.map(call).join(" || ");
+  if (positive.length > 1) {
     expression = `(${expression})`;
   }
-  for (const term of parsed.negative) {
+  for (const term of parsed.negative.slice(0, cfg.maxQueryTerms)) {
     expression = `${expression} && !!${call(term)}`;
   }
   return expression;

@@ -54,6 +54,11 @@ def parse_query(text: str) -> ParsedQuery:
     """
     positive: list[str] = []
     negative: list[str] = []
+    # OR-ing a term with itself is the same term, so a repeat only makes the statement
+    # bigger. It matters more than it sounds: text pasted into a search box repeats
+    # words constantly, and every repeat is another parser call in the generated SQL.
+    seen_positive: set[str] = set()
+    seen_negative: set[str] = set()
 
     for match in _TOKEN_RE.finditer(text or ""):
         quoted_neg, quoted, bare_neg, bare = match.groups()
@@ -67,6 +72,10 @@ def parse_query(text: str) -> ParsedQuery:
         if not negated and term.lower() in _NOISE:
             continue
 
-        (negative if negated else positive).append(term)
+        bucket, seen = (negative, seen_negative) if negated else (positive, seen_positive)
+        folded = term.casefold()
+        if folded not in seen:
+            seen.add(folded)
+            bucket.append(term)
 
     return ParsedQuery(positive=positive, negative=negative)

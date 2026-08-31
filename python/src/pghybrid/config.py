@@ -147,6 +147,15 @@ class Config:
     #: Placeholder style for the driver you use. Getting this wrong is the first
     #: thing that breaks for a new user, so it is explicit rather than guessed.
     paramstyle: ParamStyle = "numeric"
+    #: Upper bound on the terms taken from one query under "any" matching.
+    #:
+    #: Each term becomes another parser call OR-ed into the statement, and past roughly
+    #: 4,200 of them Postgres gives up with "stack depth limit exceeded" — an alarming
+    #: message for what is really "you pasted a document into the search box". Terms
+    #: beyond the limit are dropped, which costs nothing real: ts_rank_cd over hundreds
+    #: of terms has stopped discriminating long before this.
+    max_query_terms: int = 200
+
     #: See TextMatch. "any" is the default because AND semantics make the keyword
     #: half of a hybrid search return nothing for most multi-word queries, which
     #: silently degrades the whole system to vector-only search.
@@ -190,6 +199,8 @@ class Config:
             raise ValueError("k must be non-negative")
         if self.candidate_limit < 1:
             raise ValueError("candidate_limit must be >= 1")
+        if self.max_query_terms < 1:
+            raise ValueError("max_query_terms must be >= 1")
         if self.query_parser == "phraseto_tsquery" and self.rank_function == "ts_rank":
             # Not an error, but the combination reliably surprises people.
             pass

@@ -295,3 +295,49 @@ describe("the tsquery the builder generates", () => {
     expect(params.slice(0, 2)).toEqual(["renewal", "notice period"]);
   });
 });
+
+describe("repeats and long queries", () => {
+  // Two failure modes that only appear when someone pastes text into a search box.
+
+  it("collapses repeated terms", () => {
+    // `a | a` is `a`, so a repeat only makes the statement bigger.
+    expect(parseQuery("renewal Renewal RENEWAL notice renewal").positive).toEqual([
+      "renewal",
+      "notice",
+    ]);
+  });
+
+  it("keeps the first spelling of a repeated term", () => {
+    // Deduplication folds case to compare but must not rewrite what it keeps.
+    expect(parseQuery("Renewal renewal").positive).toEqual(["Renewal"]);
+  });
+
+  it("deduplicates positive and negative terms separately", () => {
+    const parsed = parseQuery("renewal renewal -pricing -pricing");
+    expect(parsed.positive).toEqual(["renewal"]);
+    expect(parsed.negative).toEqual(["pricing"]);
+  });
+
+  it("caps a pasted document before it blows the parser stack", () => {
+    // Past roughly 4,200 OR-ed parser calls Postgres reports a stack depth limit, which
+    // reads like an internal error rather than "that query was too long".
+    const query = Array.from({ length: 10_000 }, (_, i) => `term${i}`).join(" ");
+    const { sql, params } = buildSearchSql(makeConfig({ tsvectorColumn: "fts" }), {
+      text: query,
+      limit: 5,
+    });
+    expect(sql.split("websearch_to_tsquery").length - 1).toBe(200);
+    expect(params.filter((p) => typeof p === "string" && p.startsWith("term")).length).toBe(200);
+  });
+
+  it("takes the cap from the config and validates it", () => {
+    const { sql } = buildSearchSql(makeConfig({ maxQueryTerms: 3 }), {
+      text: "a b c d e f",
+      limit: 5,
+    });
+    expect(sql.split("websearch_to_tsquery").length - 1).toBe(3);
+    expect(() => buildSearchSql(makeConfig({ maxQueryTerms: 0 }), { text: "a", limit: 5 })).toThrow(
+      /maxQueryTerms/,
+    );
+  });
+});

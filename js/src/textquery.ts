@@ -51,6 +51,11 @@ export interface ParsedQuery {
 export function parseQuery(text: string | null | undefined): ParsedQuery {
   const positive: string[] = [];
   const negative: string[] = [];
+  // OR-ing a term with itself is the same term, so a repeat only makes the statement
+  // bigger. It matters more than it sounds: text pasted into a search box repeats words
+  // constantly, and every repeat is another parser call in the generated SQL.
+  const seenPositive = new Set<string>();
+  const seenNegative = new Set<string>();
 
   // A fresh regex per call: a module-level /g regex carries lastIndex between calls,
   // so a shared one would tokenise every second query from the wrong offset.
@@ -76,7 +81,13 @@ export function parseQuery(text: string | null | undefined): ParsedQuery {
       continue;
     }
 
-    (negated ? negative : positive).push(term);
+    const bucket = negated ? negative : positive;
+    const seen = negated ? seenNegative : seenPositive;
+    const folded = term.toLowerCase();
+    if (!seen.has(folded)) {
+      seen.add(folded);
+      bucket.push(term);
+    }
   }
 
   return { positive, negative, isEmpty: positive.length === 0 && negative.length === 0 };

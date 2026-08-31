@@ -419,6 +419,7 @@ Three things in it are load-bearing:
 | `k` | `60` | the RRF constant |
 | `weights` | `1.0 / 1.0` | relative influence of each signal |
 | `candidate_limit` | `50` | rows each signal contributes to the fusion |
+| `max_query_terms` | `200` | terms taken from one query under `"any"` matching. Repeats are collapsed first; past ~4,200 OR-ed terms Postgres reports a stack depth limit, which is not a useful thing to show someone who pasted a document into a search box |
 | `metric` | `cosine` | `cosine`, `l2`, `inner_product`, `l1` |
 | `vector_type` | `"vector"` | `"halfvec"` halves index size and build time, usually free on recall |
 | `recency` | `None` | `Recency(column, half_life_days)` — exponential decay on the fused score |

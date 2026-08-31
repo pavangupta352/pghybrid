@@ -135,6 +135,16 @@ export interface Config {
   tsvectorColumn?: string | null;
 
   language?: string;
+  /**
+   * Upper bound on the terms taken from one query under "any" matching.
+   *
+   * Each term becomes another parser call OR-ed into the statement, and past roughly
+   * 4,200 of them Postgres gives up with "stack depth limit exceeded" — an alarming
+   * message for what is really "you pasted a document into the search box". Terms beyond
+   * the limit are dropped, which costs nothing real: ts_rank_cd over hundreds of terms
+   * has stopped discriminating long before this.
+   */
+  maxQueryTerms?: number;
   vectorType?: VectorType;
   metric?: MetricName | Metric;
 
@@ -176,6 +186,7 @@ export interface ResolvedConfig {
   readonly idColumn: string;
   readonly tsvectorColumn: string | null;
   readonly language: string;
+  readonly maxQueryTerms: number;
   readonly vectorType: VectorType;
   readonly metric: Metric;
   readonly fusion: FusionMethod;
@@ -279,6 +290,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     idColumn: config.idColumn ?? "id",
     tsvectorColumn: config.tsvectorColumn ?? null,
     language: resolveLanguage(config.language ?? "english"),
+    maxQueryTerms: resolvePositiveInt(config.maxQueryTerms ?? 200, "maxQueryTerms"),
     vectorType,
     metric: resolveMetric(config.metric),
     fusion: config.fusion ?? "rrf",
@@ -313,6 +325,13 @@ const LANGUAGE_RE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/;
 /** Interpolated for the same reason, so only these names are accepted. */
 const QUERY_PARSERS = ["websearch_to_tsquery", "plainto_tsquery", "phraseto_tsquery"] as const;
 const RANK_FUNCTIONS = ["ts_rank_cd", "ts_rank"] as const;
+
+function resolvePositiveInt(value: number, field: string): number {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${field} must be an integer >= 1, got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
 
 function resolveLanguage(language: string): string {
   if (typeof language !== "string" || !LANGUAGE_RE.test(language)) {

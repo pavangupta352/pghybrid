@@ -171,10 +171,11 @@ def _tsquery_expr(cfg: Config, text: str, params: Params) -> str:
         # query, which would flood the fusion with irrelevant candidates.
         return call(text)
 
-    expression = " || ".join(call(term) for term in parsed.positive)
-    if len(parsed.positive) > 1:
+    positive = parsed.positive[: cfg.max_query_terms]
+    expression = " || ".join(call(term) for term in positive)
+    if len(positive) > 1:
         expression = f"({expression})"
-    for term in parsed.negative:
+    for term in parsed.negative[: cfg.max_query_terms]:
         expression = f"{expression} && !!{call(term)}"
     return expression
 
