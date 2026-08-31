@@ -727,3 +727,40 @@ def test_a_view_can_be_searched_but_not_indexed(connection, unmigrated):
     assert all(s.optional for s in statements)
     assert any("cannot carry an index" in s.reason for s in statements)
     assert not any(s.sql.strip().upper().startswith(("ALTER", "CREATE")) for s in statements)
+
+
+def test_halfvec_is_gated_on_the_pgvector_version(connection):
+    """halfvec, sparsevec and the L1 operator all arrived in pgvector 0.7.0.
+
+    Attempting the ALTER on an older server fails with `type "halfvec" does not exist`,
+    which reads like a typo rather than like a version requirement. The README says the
+    core works from 0.5, so a user on 0.5 or 0.6 asking for halfvec is a reachable state
+    and deserves a sentence rather than a type error.
+    """
+    from dataclasses import replace
+
+    info = introspect(dbapi_executor(connection), "chunks")
+    assert info.supports_halfvec, "the test server should be new enough for the happy path"
+
+    config = replace(suggest_config(info), vector_type="halfvec")
+    statements = build_migration(config, replace(info, pgvector_version="0.6.2"))
+
+    # Other statements may legitimately accompany it — ANALYZE, an index on a filter
+    # column — so the assertion is about the halfvec decision, not the whole list.
+    notes = [s for s in statements if s.kind == "note"]
+    assert notes, "an unsupported vector_type should produce a note, not silence"
+    assert "0.7.0" in notes[0].reason
+    assert notes[0].optional
+    assert not any("halfvec" in s.sql and s.kind == "column" for s in statements), (
+        "no ALTER ... TYPE halfvec should be emitted against a server that lacks the type"
+    )
+
+
+def test_the_version_properties_read_the_server_not_a_constant(connection):
+    info = introspect(dbapi_executor(connection), "chunks")
+    from dataclasses import replace
+
+    assert replace(info, pgvector_version="0.5.1").supports_halfvec is False
+    assert replace(info, pgvector_version="0.7.0").supports_halfvec is True
+    assert replace(info, pgvector_version="0.7.4").supports_iterative_scan is False
+    assert replace(info, pgvector_version="0.8.0").supports_iterative_scan is True

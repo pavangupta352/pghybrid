@@ -447,12 +447,17 @@ explicitly instead of relying on a database default that can be changed undernea
 
 ## Requirements
 
-- PostgreSQL 12+
-- `pgvector` 0.5+ (0.8+ recommended, for iterative index scans)
+- **PostgreSQL 13 to 17** — every version in that range is run in CI. Nothing here is
+  known to need anything newer than 12, but 12 is out of support and untested, so it is
+  not claimed.
+- **`pgvector` 0.5+** for everything the README shows. HNSW arrived in 0.5.0. Two options
+  need more: `vector_type="halfvec"` needs **0.7**, and `doctor`'s iterative-scan advice
+  needs **0.8**. Both are version-gated — asking for halfvec on an older server gets a
+  sentence explaining why, rather than `type "halfvec" does not exist`.
 - Python 3.9+ / Node 18+
 
-No other extension. That is the point, and it is asserted by a test that runs against a
-stock `pgvector/pgvector:pg17` image with only `plpgsql` and `vector` installed.
+No other extension. That is the point, and it is asserted by a test that runs against
+stock `pgvector/pgvector` images with only `plpgsql` and `vector` installed.
 
 ## Prior art, credited
 

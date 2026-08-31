@@ -22,10 +22,13 @@ jobs:
         python: ["3.9", "3.13"]
         pg: ["pg17"]
         include:
-          # The oldest Postgres worth supporting, checked once rather than against
-          # every Python: the SQL is what varies by server version, not the client.
+          # The ends of the supported range, checked once each rather than against every
+          # Python: the SQL is what varies by server version, not the client. pg13 is the
+          # oldest image pgvector publishes, so it is the oldest version claimed.
           - python: "3.13"
-            pg: "pg14"
+            pg: "pg13"
+          - python: "3.13"
+            pg: "pg15"
     services:
       postgres:
         # Stock pgvector image with nothing added. The integration suite asserts that

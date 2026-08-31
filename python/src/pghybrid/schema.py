@@ -331,6 +331,16 @@ class TableInfo:
         """pgvector 0.8.0 added iterative index scans, the fix for filtered recall."""
         return self.pgvector_version_tuple >= (0, 8)
 
+    @property
+    def supports_halfvec(self) -> bool:
+        """pgvector 0.7.0 added halfvec, sparsevec and the L1 operator.
+
+        Worth checking rather than attempting: on an older server the failure is
+        ``type "halfvec" does not exist``, which reads like a typo rather than like a
+        version requirement.
+        """
+        return self.pgvector_version_tuple >= (0, 7)
+
     def to_text(self) -> str:
         """Render the inventory, the same block the doctor report opens with."""
         lines = [f"table            {self.qualified}"]
@@ -1085,6 +1095,22 @@ def _vector_column_statements(config: Config, info: TableInfo, table: str) -> li
                 ],
             )
         ]
+    if config.vector_type == "halfvec" and not info.supports_halfvec:
+        return [
+            Statement(
+                sql="-- halfvec needs pgvector 0.7 or later",
+                reason=(
+                    f"This config asks for halfvec, but the server runs pgvector "
+                    f"{info.pgvector_version or 'unknown'}. halfvec, sparsevec and the "
+                    "L1 operator all arrived in 0.7.0. Upgrade the extension, or leave "
+                    "vector_type as 'vector' — everything else here works from 0.5."
+                ),
+                kind="note",
+                optional=True,
+                notes=["ALTER EXTENSION vector UPDATE; -- if a newer version is available"],
+            )
+        ]
+
     if config.vector_type == "halfvec" and column.type_name != "halfvec":
         dimensions = column.dimensions
         return [
