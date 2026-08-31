@@ -348,6 +348,11 @@ arithmetic shown so you can defend the choice:
   is where most multi-tenant applications live, and pgvector 0.8's
   [iterative index scans](https://github.com/pgvector/pgvector#iterative-index-scans) are
   the fix
+- **an `id_column` that is not unique.** The fusion joins the two candidate sets on it and
+  then joins back to the table on it, so a repeated id multiplies rows — asking for ten
+  results on a table with five chunks per `doc_id` returns the same document ten times,
+  with no error anywhere. A primary key needs no finding; a column with no unique index is
+  reported even when no duplicate exists yet, because the first insert makes it wrong
 - **a `tsvector` column that has stopped matching its text**, measured on a random sample.
   If a trigger or a backfill maintains the column rather than Postgres generating it, it
   can fall behind, and the failure is silent in both directions: those rows come back for

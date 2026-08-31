@@ -416,6 +416,97 @@ def test_paging_past_the_pool_says_so_instead_of_returning_nothing(search):
 
 
 @pytest.fixture
+def chunked_table(connection):
+    """Five chunks per document, so doc_id repeats and chunk_id does not."""
+    connection.execute("DROP TABLE IF EXISTS chunked_probe")
+    connection.execute(
+        "CREATE TABLE chunked_probe ("
+        "  chunk_id bigserial PRIMARY KEY, doc_id bigint NOT NULL, slug text,"
+        "  content text NOT NULL, embedding vector(8),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    for i in range(100):
+        connection.execute(
+            "INSERT INTO chunked_probe (doc_id, slug, content, embedding) "
+            "VALUES (%s, %s, %s, %s::vector)",
+            (
+                i // 5 + 1,
+                f"part-{i}",
+                f"renewal notice clause part {i}",
+                "[" + ",".join(["0.1"] * 8) + "]",
+            ),
+        )
+    yield "chunked_probe"
+    connection.execute("DROP TABLE IF EXISTS chunked_probe")
+
+
+def _config_for(table, id_column):
+    return Config(
+        table=table,
+        text_column="content",
+        vector_column="embedding",
+        tsvector_column="fts",
+        id_column=id_column,
+        paramstyle="pyformat",
+    )
+
+
+def test_a_repeated_id_multiplies_rows_through_the_fusion(connection, chunked_table):
+    """Why the finding below matters: this is what the caller actually receives.
+
+    The fusion joins the two candidate sets on the id column and then joins the result
+    back to the table on it, so a row whose id is shared by five table rows becomes five
+    results. A search for ten comes back as the same document ten times, with no error
+    anywhere — the shape of the answer is right and the content is nonsense.
+    """
+    search = HybridSearch(
+        _config_for(chunked_table, "doc_id"),
+        execute=lambda sql, p: connection.execute(sql, p).fetchall(),
+    )
+    rows = search.search("renewal notice", embedding=[0.1] * 8, limit=10)
+    assert len(rows) == 10
+    assert len({r.id for r in rows}) < 10, (
+        "the corpus no longer reproduces the duplication this test is about"
+    )
+
+
+def test_doctor_reports_an_id_column_that_is_not_unique(connection, chunked_table):
+    report = doctor(
+        dbapi_executor(connection), _config_for(chunked_table, "doc_id"), sample=20, k=5
+    )
+    finding = next((f for f in report.findings if "doc_id" in f.title), None)
+    assert finding is not None and finding.level == "error", finding
+    assert "is not unique" in finding.title
+    # The message carries the evidence, not just the accusation.
+    assert "appears on 5 rows" in finding.detail
+
+
+def test_doctor_is_silent_when_the_id_column_is_the_primary_key(connection, chunked_table):
+    report = doctor(
+        dbapi_executor(connection), _config_for(chunked_table, "chunk_id"), sample=20, k=5
+    )
+    assert not [f for f in report.findings if "chunk_id" in f.title], (
+        "a primary key is proof of uniqueness and needs no finding"
+    )
+
+
+def test_doctor_warns_when_nothing_enforces_uniqueness(connection, chunked_table):
+    """Correct today, one INSERT away from silently wrong, and worth saying so."""
+    report = doctor(dbapi_executor(connection), _config_for(chunked_table, "slug"), sample=20, k=5)
+    finding = next((f for f in report.findings if "slug" in f.title), None)
+    assert finding is not None and finding.level == "warn", finding
+    assert "no unique index" in finding.title
+    assert finding.fix and "CREATE UNIQUE INDEX" in finding.fix
+
+
+def test_doctor_reports_an_id_column_that_does_not_exist(connection, chunked_table):
+    report = doctor(dbapi_executor(connection), _config_for(chunked_table, "nope"), sample=20, k=5)
+    finding = next((f for f in report.findings if "nope" in f.title), None)
+    assert finding is not None and finding.level == "error", finding
+
+
+@pytest.fixture
 def drift_table(connection):
     """A hand-maintained tsvector, so it can fall out of step with the text."""
     connection.execute("DROP TABLE IF EXISTS drift_probe")

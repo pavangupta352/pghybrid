@@ -543,6 +543,35 @@ class _Prober:
             return None
         return int(row[0][0]), int(row[0][1]), how
 
+    def duplicate_ids(self) -> Optional[tuple[Any, int]]:
+        """One id that appears on more than one row, if such an id exists.
+
+        The fusion joins the two candidate sets on the id column and then joins back to
+        the table on it again, so an id that is not unique multiplies rows: every fused
+        row becomes as many result rows as there are table rows sharing that id. A search
+        for ten results comes back as the same document ten times.
+
+        Finding a duplicate is proof. Not finding one is not proof of uniqueness on a
+        table that changes, which is why a unique index is checked first and this only
+        runs when there is none.
+
+        Returns ``(id, occurrences)``, None if the probe could not run, and
+        ``(None, 0)`` when the scan completed and found nothing.
+        """
+        try:
+            with self.session():
+                rows = self.run(
+                    f"SELECT {self.id_column} AS id, count(*) AS n FROM {self.table} "
+                    f"GROUP BY {self.id_column} HAVING count(*) > 1 "
+                    "ORDER BY count(*) DESC LIMIT 1"
+                )
+        except Exception as exc:  # noqa: BLE001 - reported, never raised at the caller
+            self.errors.append(f"duplicate id check: {exc}")
+            return None
+        if not rows:
+            return None, 0
+        return rows[0][0], int(rows[0][1])
+
     # -- the measurement ----------------------------------------------------
 
     def vector_sql(self, vector: str, k: int, *, predicate: str = "", exact: bool = False) -> str:
@@ -1002,6 +1031,67 @@ def _check_inventory(report: DoctorReport, probe: _Prober) -> None:
                 fix="pghybrid migrate",
             )
         )
+
+    # The id column is the join key twice over — the two candidate sets are joined on it
+    # and the result is joined back to the table on it — so uniqueness is not a nicety.
+    # A repeated id multiplies rows: limit=10 on a table with five rows per id came back
+    # as the same document ten times, with no error anywhere.
+    id_column = info.column(config.id_column)
+    if id_column is None:
+        add(
+            Finding(
+                "error",
+                f"{config.id_column} does not exist",
+                f"The config joins on {config.id_column}, which is not a column of "
+                f"{info.qualified}. Columns: "
+                f"{', '.join(c.name for c in info.columns) or 'none'}.",
+            )
+        )
+    elif not any(
+        index.unique and index.keys == [config.id_column] and index.predicate is None
+        for index in info.indexes
+    ):
+        duplicates = probe.duplicate_ids()
+        if duplicates is None:
+            add(
+                Finding(
+                    "warn",
+                    f"nothing guarantees {config.id_column} is unique",
+                    "No unique index covers it, and the scan that would have looked for "
+                    "a duplicate did not finish. A repeated id multiplies rows through "
+                    "the fusion join.",
+                )
+            )
+        elif duplicates[0] is None:
+            add(
+                Finding(
+                    "warn",
+                    f"{config.id_column} has no unique index",
+                    "No duplicate exists today, so results are correct right now, but "
+                    "nothing stops one being inserted. The fusion joins on this column "
+                    "twice, so the first repeated id silently multiplies rows: every "
+                    "fused row becomes as many results as there are rows sharing the id.",
+                    fix=f"CREATE UNIQUE INDEX ON {quote_ident(config.table)} "
+                    f"({quote_ident(config.id_column)});",
+                )
+            )
+        else:
+            value, occurrences = duplicates
+            add(
+                Finding(
+                    "error",
+                    f"{config.id_column} is not unique",
+                    f"{config.id_column} = {value!r} appears on {occurrences:,} rows. "
+                    "The fusion joins the two candidate sets on this column and then "
+                    "joins back to the table on it, so every fused row becomes as many "
+                    "results as there are rows sharing its id. Asking for ten results "
+                    "returns the same document repeated, and nothing errors. If this is "
+                    "a document id over chunked text, the id column should be the chunk "
+                    "key and the document id an ordinary column you select alongside.",
+                    fix=f"Config(..., id_column=<a unique column>)  -- currently "
+                    f"{config.id_column!r}",
+                )
+            )
 
     ts_column = info.column(config.tsvector_column) if config.tsvector_column else None
     if ts_column is not None and not ts_column.generated:

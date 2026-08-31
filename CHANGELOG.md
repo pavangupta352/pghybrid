@@ -64,6 +64,11 @@ First release.
   80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
   in a search UI, with nothing to indicate anything was wrong.
 
+- `doctor` checks that `id_column` is unique. The fusion joins on it twice, so a repeated
+  id multiplies rows: pointing `id_column` at a `doc_id` over chunked text returned the
+  same document ten times for `limit=10`, silently. A unique index is proof and produces
+  no finding; without one, an actual duplicate is an error naming it, and no duplicate is
+  a warning, because the first insert makes it wrong.
 - `doctor` measures whether a hand-maintained `tsvector` still matches its text instead
   of warning that it might not. A stale column is silent in both directions — rows are
   returned for words they no longer contain and missing for the words they do — and reads
