@@ -125,26 +125,41 @@ The weights describe the constants, not the influence. **Tuning them cannot fix 
 because the spans are set by the scoring functions, and `ts_rank_cd`'s span shifts with
 document length and corpus statistics.
 
-`pghybrid explain` measures this on your own data:
+`pghybrid explain` measures it on your own data, for both fusion methods at once:
 
 ```
-weighted fusion          nominal    span     effective
-  vector                   70.0%    0.190       85.2%
-  text                     30.0%    0.077       14.8%
+  effective weights · what each signal really controls
 
-rrf fusion (default)     nominal    span     effective
-  vector                   50.0%    0.016       50.1%
-  text                     50.0%    0.016       49.9%
+  fusion      signal   nominal     contribution range        span   effective
+  ───────────────────────────────────────────────────────────────────────────
+  rrf ▸       vector     70.0%      0.00972 … 0.01148     0.00175       71.7%
+              text       30.0%      0.00423 … 0.00492     0.00069       28.3%
+                    configured 70/30 → measured 72/28
+  weighted    vector     70.0%      0.06347 … 0.69214     0.62867       75.0%
+              text       30.0%      0.03000 … 0.24000     0.21000       25.0%
+                    configured 70/30 → measured 75/25
 ```
 
 Reciprocal Rank Fusion combines **ranks**, which share a scale by construction, so the
-weights mean what they say:
+weights mean roughly what they say:
 
 ```
 score = Σ  weight / (k + rank)
 ```
 
 `k = 60` is from [Cormack, Clarke & Buettcher (2009)](https://dl.acm.org/doi/10.1145/1571941.1572114).
+
+That output is from the demo corpus, whose vectors are placed evenly by hand — which is
+the *best* case for weighted fusion, and the gap is still visible. On real embeddings it
+is wider, because real cosine similarities bunch into a narrow band while `ts_rank_cd`
+does not. Do not take a number from this README; run `explain` on your own index, which
+is the entire reason the command exists.
+
+`explain` also separates a second effect that is easy to mistake for the first. If one
+signal matched far fewer rows than the other, it is doing more of the discriminating work
+in that result set regardless of any weight you set — the header line reports coverage
+(`12 by vector · 4 by text · 4 by both`) so you can tell a **scale** problem, which
+switching to RRF fixes, from a **coverage** one, which it does not and should not.
 
 ### 2. Your keyword search matches nothing
 
@@ -177,16 +192,29 @@ contribution to the fused score, and — the part nobody else shows — the **ne
 the rows ranked just below your cut-off.
 
 ```
-$ pghybrid explain "renewal notice period" --k 4 --near 3
+$ pghybrid explain "renewal notice period" --limit 4 --near-miss 3
 
-  #  score     vector          text            document
-  1  0.032258  rank 2  d.039   rank 2  0.300   Termination for convenience
-  2  0.031319  rank 7  d.363   rank 1  0.600   Renewal pricing
-  3  0.030835  rank 8  d.460   rank 2  0.300   Renewal terms
-  4  0.030777  rank 6  d.275   rank 4  0.100   Notice requirements
-  ─────────────────────────────── near miss ───────────────────────────────
-  5  0.016393  rank 1  d.011      —       —    Automatic extension
-  6  0.015873  rank 3  d.079      —       —    Subscription term
+  pghybrid explain · chunks
+
+  query       "renewal notice period" · embedding 8 dims
+  fusion      rrf · k 60 · weights vector 1 / text 1
+  candidates  50 per signal → 12 fused · 12 by vector · 4 by text · 4 by both
+  signals     cosine distance 0.01123 … 0.90933 · ts_rank_cd 0.10000 … 0.60000
+  window      top 4 · near-miss band of 3
+
+                                                     vector                     text             final
+       #  id  title                         rank  distance   contrib  rank  ts_rank_   contrib     score
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────
+       1   2  Termination for convenience      2   0.03894   0.01613     2   0.30000   0.01613   0.03226
+       2   7  Renewal pricing                  7   0.36285   0.01493     1   0.60000   0.01639   0.03132
+       3   8  Renewal terms                    8   0.45970   0.01471     2   0.30000   0.01613   0.03083
+       4   6  Notice requirements              6   0.27516   0.01515     4   0.10000   0.01562   0.03078
+  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ near miss · ranks 5–7 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+       5   1  Automatic extension              1   0.01123   0.01639     –         –         0   0.01639
+       6   3  Subscription term                3   0.07894   0.01587     –         –         0   0.01587
+       7   4  Fees and invoicing               4   0.13218   0.01562     –         –         0   0.01562
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────
+  5 further candidates fused below this window
 ```
 
 And when a document you *know* is in there does not come back:
