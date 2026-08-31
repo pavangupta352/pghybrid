@@ -119,6 +119,32 @@ class Recency:
             raise ValueError("half_life_days must be greater than zero")
 
 
+#: Names the generated statement already uses for its own output columns.
+#:
+#: A table column with one of these names is selected alongside the computed one, and
+#: Postgres allows duplicate output names, so the driver keeps whichever comes last: the
+#: table's. That is silent and it corrupts the part of the result people rely on most.
+#: Listing a column called ``text_rank`` turned ``text_rank=1, matched_by="both"`` into
+#: ``text_rank=None, matched_by="vector"`` — the library reporting that the keyword signal
+#: missed rows it had ranked first.
+#:
+#: ``score`` happens to fail loudly because ORDER BY references it, but relying on that is
+#: relying on an accident of one alias being mentioned twice. The whole set is refused.
+RESERVED_OUTPUT_NAMES = (
+    "id",
+    "score",
+    "fused_score",
+    "vector_rank",
+    "vector_distance",
+    "vector_contribution",
+    "text_rank",
+    "text_score",
+    "text_contribution",
+    "recency_factor",
+    "highlight",
+)
+
+
 @dataclass
 class Config:
     """Describes one searchable table.
@@ -191,6 +217,24 @@ class Config:
                 f"'english', 'simple' or 'pg_catalog.french', got {self.language!r}. "
                 "It is interpolated into the statement rather than bound, so only "
                 "identifier-shaped values are accepted."
+            )
+        # A column selected through to the result cannot be called what the statement
+        # already calls one of its own. Postgres permits the duplicate name and the
+        # driver silently keeps the last one, so the computed value disappears.
+        clashes = sorted(
+            {
+                column
+                for column in [self.text_column, *self.extra_columns]
+                if column in RESERVED_OUTPUT_NAMES
+            }
+        )
+        if clashes:
+            raise ValueError(
+                f"{', '.join(repr(c) for c in clashes)} cannot be selected through: the "
+                "generated statement already returns a column of that name, and the "
+                "duplicate silently replaces the computed value rather than erroring. "
+                f"Reserved: {', '.join(RESERVED_OUTPUT_NAMES)}. Rename the column, or "
+                "expose it under another name with a view."
             )
         if self.query_parser not in QUERY_PARSERS:
             raise ValueError(

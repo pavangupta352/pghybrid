@@ -424,6 +424,15 @@ const ERROR_FIXTURES = [
   // A page outside the candidate pool. Widening the pool per page would reorder every
   // page, so this is an error rather than an empty result.
   fixture("error-page-past-the-pool", {}, { embedding: [0.1], limit: 10, offset: 50 }),
+  // A table column that shadows one the statement already returns. Postgres allows the
+  // duplicate name and the driver keeps the last one, so the computed value vanishes
+  // without an error anywhere.
+  fixture("error-extra-column-shadows-text-rank", { extraColumns: ["text_rank"] },
+    { embedding: [0.1], limit: 5 }),
+  fixture("error-extra-columns-shadow-two", { extraColumns: ["score", "fused_score", "title"] },
+    { embedding: [0.1], limit: 5 }),
+  fixture("error-text-column-shadows-highlight", { textColumn: "highlight" },
+    { embedding: [0.1], limit: 5 }),
   fixture(
     "error-page-past-an-explicit-pool",
     {},

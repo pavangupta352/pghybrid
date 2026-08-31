@@ -786,6 +786,38 @@ describe("limits and the candidate budget", () => {
     expect(boundLimit(cte(sql, "text_candidates"), params)).toBe(13);
   });
 
+  it("refuses a column named like one the statement computes", () => {
+    // Postgres allows two output columns with the same name and the driver keeps the
+    // last, which is the table's. Listing a column called text_rank turned
+    // text_rank=1, matched_by="both" into text_rank=null, matched_by="vector" — the
+    // library reporting that the keyword signal missed rows it had ranked first.
+    expect(() =>
+      buildSearchSql(makeConfig({ extraColumns: ["text_rank"] }), {
+        embedding: [0.1],
+        limit: 5,
+      }),
+    ).toThrow(/'text_rank' cannot be selected through/);
+
+    // Reported together, sorted, with the innocent one left out.
+    expect(() =>
+      buildSearchSql(makeConfig({ extraColumns: ["score", "title", "fused_score"] }), {
+        embedding: [0.1],
+        limit: 5,
+      }),
+    ).toThrow(/'fused_score', 'score' cannot be selected through/);
+
+    // The text column goes through the same projection, so it is checked too.
+    expect(() =>
+      buildSearchSql(makeConfig({ textColumn: "highlight" }), { embedding: [0.1], limit: 5 }),
+    ).toThrow(/cannot be selected through/);
+
+    // And an ordinary column is still fine.
+    expect(
+      buildSearchSql(makeConfig({ extraColumns: ["title"] }), { embedding: [0.1], limit: 5 })
+        .sql,
+    ).toContain('t."title"');
+  });
+
   it("does not let the candidate pool depend on the offset", () => {
     // Ranks are assigned inside the pool, so a pool that varies per page reorders pages.
     // Widening it to cover the offset looks like the obvious fix for an empty page and is

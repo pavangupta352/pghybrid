@@ -266,7 +266,55 @@ function resolveRecency(recency: Recency | null | undefined): Recency | null {
  * the first query it is used for, with a message naming the field, instead of by the
  * server with a message naming a placeholder.
  */
+/**
+ * Names the generated statement already uses for its own output columns.
+ *
+ * A table column with one of these names is selected alongside the computed one, and
+ * Postgres allows duplicate output names, so the driver keeps whichever comes last: the
+ * table's. That is silent and it corrupts the part of the result people rely on most.
+ * Listing a column called `text_rank` turned `text_rank=1, matched_by="both"` into
+ * `text_rank=null, matched_by="vector"` — the library reporting that the keyword signal
+ * missed rows it had ranked first.
+ *
+ * `score` happens to fail loudly because ORDER BY references it, but relying on that is
+ * relying on an accident of one alias being mentioned twice. The whole set is refused.
+ */
+export const RESERVED_OUTPUT_NAMES = [
+  "id",
+  "score",
+  "fused_score",
+  "vector_rank",
+  "vector_distance",
+  "vector_contribution",
+  "text_rank",
+  "text_score",
+  "text_contribution",
+  "recency_factor",
+  "highlight",
+] as const;
+
 export function resolveConfig(config: Config): ResolvedConfig {
+  // A column selected through to the result cannot be called what the statement already
+  // calls one of its own. Postgres permits the duplicate name and the driver silently
+  // keeps the last one, so the computed value disappears.
+  const reserved: readonly string[] = RESERVED_OUTPUT_NAMES;
+  const clashes = [
+    ...new Set(
+      [config.textColumn, ...(config.extraColumns ?? [])].filter((column) =>
+        reserved.includes(column),
+      ),
+    ),
+  ].sort();
+  if (clashes.length > 0) {
+    throw new Error(
+      `${clashes.map((c) => `'${c}'`).join(", ")} cannot be selected through: the ` +
+        "generated statement already returns a column of that name, and the duplicate " +
+        "silently replaces the computed value rather than erroring. " +
+        `Reserved: ${RESERVED_OUTPUT_NAMES.join(", ")}. Rename the column, or expose it ` +
+        "under another name with a view.",
+    );
+  }
+
   const textMatch = config.textMatch ?? "any";
   if (textMatch !== "any" && textMatch !== "all") {
     throw new Error(`textMatch must be 'any' or 'all', got ${JSON.stringify(textMatch)}`);

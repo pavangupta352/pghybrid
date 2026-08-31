@@ -64,6 +64,14 @@ First release.
   80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
   in a search UI, with nothing to indicate anything was wrong.
 
+- A column selected through to the result can no longer be named like one the statement
+  computes. Postgres permits two output columns with the same name and the driver keeps
+  the last, which is the table's, so the computed value disappeared without an error:
+  listing a column called `text_rank` turned `text_rank=1, matched_by="both"` into
+  `text_rank=None, matched_by="vector"` on the same query and the same data — the library
+  reporting that the keyword signal missed rows it had ranked first. `Config` now refuses
+  the whole reserved set, and a test reads the aliases back out of a fully-featured
+  statement so the list cannot fall behind the query.
 - `doctor` checks that `id_column` is unique. The fusion joins on it twice, so a repeated
   id multiplies rows: pointing `id_column` at a `doc_id` over chunked text returned the
   same document ten times for `limit=10`, silently. A unique index is proof and produces

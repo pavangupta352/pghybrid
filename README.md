@@ -452,6 +452,7 @@ Three things in it are load-bearing:
 | `recency` | `None` | `Recency(column, half_life_days)` — exponential decay on the fused score. It **reranks the candidate pool, it does not retrieve**: both signals pick their top `candidate_limit` rows on relevance alone and the decay applies afterwards, so a row published today that no signal ranked highly cannot surface at any half-life. Raise `candidate_limit` if it needs to |
 | `paramstyle` | `"numeric"` | `$1` for asyncpg / node-postgres / raw SQL, `"pyformat"` (`%s`) for psycopg |
 | `filter_columns` | `[]` | columns you may filter on; anything else is rejected rather than interpolated |
+| `extra_columns` | `[]` | columns copied through to each result. None of them, nor `text_column`, may be named like a column the statement already returns — `id`, `score`, `fused_score`, `vector_rank`, `vector_distance`, `vector_contribution`, `text_rank`, `text_score`, `text_contribution`, `recency_factor`, `highlight`. Postgres allows the duplicate name and the driver keeps the table's, so the computed value would vanish silently and take `matched_by` with it. The config refuses it instead |
 
 Everything you pass is either a bind parameter or an identifier validated by
 `quote_ident` — except `language`, `query_parser` and `rank_function`, which are parts of

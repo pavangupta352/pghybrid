@@ -20,8 +20,14 @@ from typing import Any
 
 import pytest
 
-from pghybrid.config import Config, Recency, Weights
-from pghybrid.sql import IdentifierError, Params, build_search_sql, quote_ident
+from pghybrid.config import RESERVED_OUTPUT_NAMES, Config, Recency, Weights
+from pghybrid.sql import (
+    IdentifierError,
+    Params,
+    _output_columns,
+    build_search_sql,
+    quote_ident,
+)
 
 GOLDEN = Path(__file__).parent / "golden" / "canonical_search.sql"
 
@@ -696,6 +702,40 @@ def test_candidate_limit_is_raised_to_cover_limit_plus_near_miss(make_config: An
     sql, params = build_search_sql(cfg, embedding=[0.1], text="renewal", limit=10, near_miss=3)
     assert bound_limit(cte(sql, "vector_candidates"), params) == 13
     assert bound_limit(cte(sql, "text_candidates"), params) == 13
+
+
+def test_reserved_names_are_exactly_what_the_statement_returns(make_config: Any) -> None:
+    """The guard that keeps the reserved list honest as the query grows.
+
+    RESERVED_OUTPUT_NAMES exists to stop a table column shadowing a computed one. It is a
+    hand-written list, so it rots the moment someone adds an output column and does not
+    think of it — and the failure it guards against is silent, which is exactly the kind
+    nobody notices. This reads the aliases back out of a statement with every optional
+    output turned on and insists the two agree.
+    """
+    cfg = make_config(recency=Recency(column="created_at", half_life_days=30))
+    sql, _ = build_search_sql(
+        cfg, embedding=[0.1], text="renewal", limit=5, highlight=True, near_miss=2
+    )
+    # The final SELECT: everything between the last "SELECT" at column 0 and its FROM.
+    final = sql[sql.rindex("\nSELECT ") :]
+    projection = final[: final.index("\nFROM ")]
+
+    emitted = []
+    for item in projection.replace("\nSELECT ", "").split(",\n"):
+        item = item.strip().rstrip(",")
+        if not item:
+            continue
+        # "expr AS name", or "f.name" / 't."name"' when nothing renames it.
+        name = item.rsplit(" AS ", 1)[-1] if " AS " in item else item.rsplit(".", 1)[-1]
+        emitted.append(name.strip().strip('"'))
+
+    computed = [name for name in emitted if name not in _output_columns(cfg)]
+    assert set(computed) == set(RESERVED_OUTPUT_NAMES), (
+        "the statement's own output columns and RESERVED_OUTPUT_NAMES have diverged.\n"
+        f"  emitted but not reserved: {sorted(set(computed) - set(RESERVED_OUTPUT_NAMES))}\n"
+        f"  reserved but not emitted: {sorted(set(RESERVED_OUTPUT_NAMES) - set(computed))}"
+    )
 
 
 def test_the_candidate_pool_does_not_depend_on_the_offset(make_config: Any) -> None:

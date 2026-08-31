@@ -415,6 +415,56 @@ def test_paging_past_the_pool_says_so_instead_of_returning_nothing(search):
         search.search(DEMO_QUERY, embedding=query_vector(), limit=10, offset=50)
 
 
+def test_a_column_named_like_a_computed_one_is_refused(connection):
+    """The value of refusing: the alternative is the library lying about itself.
+
+    Postgres allows two output columns with the same name and the driver keeps the last,
+    which is the table's. Before this was refused, listing a column called text_rank
+    turned text_rank=1, matched_by="both" into text_rank=None, matched_by="vector" — the
+    same query on the same data, now reporting that the keyword signal missed rows it had
+    ranked first. matched_by is the reason to use this library rather than a vector-only
+    one, so quietly inverting it is the worst outcome available.
+    """
+    connection.execute("DROP TABLE IF EXISTS shadow_probe")
+    connection.execute(
+        "CREATE TABLE shadow_probe ("
+        "  id bigserial PRIMARY KEY, content text NOT NULL, text_rank int,"
+        "  embedding vector(8),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        for i in range(20):
+            connection.execute(
+                "INSERT INTO shadow_probe (content, text_rank, embedding) "
+                "VALUES (%s, NULL, %s::vector)",
+                (f"renewal notice clause {i}", "[" + ",".join(["0.1"] * 8) + "]"),
+            )
+
+        def config(extra):
+            return Config(
+                table="shadow_probe",
+                text_column="content",
+                vector_column="embedding",
+                tsvector_column="fts",
+                extra_columns=extra,
+                paramstyle="pyformat",
+            )
+
+        # Without the shadowing column the answer is right, which is the control.
+        rows = HybridSearch(
+            config([]), execute=lambda sql, p: connection.execute(sql, p).fetchall()
+        ).search("renewal notice", embedding=[0.1] * 8, limit=2)
+        assert [r.matched_by for r in rows] == ["both", "both"]
+        assert all(r.text_rank is not None for r in rows)
+
+        # With it, the config never builds.
+        with pytest.raises(ValueError, match="cannot be selected through"):
+            config(["text_rank"])
+    finally:
+        connection.execute("DROP TABLE IF EXISTS shadow_probe")
+
+
 @pytest.fixture
 def chunked_table(connection):
     """Five chunks per document, so doc_id repeats and chunk_id does not."""
