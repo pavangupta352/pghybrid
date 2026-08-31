@@ -90,6 +90,13 @@ def test_sql_paramstyle_switches_the_placeholders(capsys):
     assert "$1" in capsys.readouterr().out
 
 
+def test_sql_carries_the_language_through(capsys):
+    """Someone printing the statement for a French config must get their statement,
+    not the English default with the flag silently dropped."""
+    assert run("sql", "--table", "c", "--language", "french", "hi") == 0
+    assert "'french'" in capsys.readouterr().out
+
+
 def test_a_hostile_table_name_is_refused_without_a_traceback(capsys):
     assert run("sql", "--table", 'bad"; DROP TABLE users; --') == 2
     assert "not a valid Postgres identifier" in capsys.readouterr().err

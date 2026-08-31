@@ -354,6 +354,7 @@ def command_sql(args: argparse.Namespace) -> int:
         vector_column=args.vector_column or "embedding",
         id_column=args.id_column or "id",
         tsvector_column=args.tsvector_column,
+        language=args.language or "english",
         paramstyle=args.paramstyle,
     )
     sql, params = build_search_sql(
@@ -442,6 +443,7 @@ def build_parser() -> argparse.ArgumentParser:
     sql_parser.add_argument("--vector-column")
     sql_parser.add_argument("--id-column")
     sql_parser.add_argument("--tsvector-column")
+    sql_parser.add_argument("--language")
     sql_parser.add_argument("--paramstyle", choices=["numeric", "pyformat"], default="numeric")
     sql_parser.add_argument("--limit", type=int, default=10)
     sql_parser.add_argument("--highlight", action="store_true")
