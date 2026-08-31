@@ -17,6 +17,12 @@ name: Release
 #          publish, or configure the trusted publisher on the org/package settings.
 #
 # Then:  git tag v0.1.0 && git push origin v0.1.0
+#
+# After the first successful release, add the registry badges back to README.md:
+#   [![PyPI](https://img.shields.io/pypi/v/pghybrid?color=306998&label=pypi)](https://pypi.org/project/pghybrid/)
+#   [![npm](https://img.shields.io/npm/v/pghybrid?color=cb3837&label=npm)](https://www.npmjs.com/package/pghybrid)
+# They are left out until then because shields.io renders a missing package as a red
+# "package not found", which is the first thing a visitor sees.
 
 on:
   push:
