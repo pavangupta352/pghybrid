@@ -38,7 +38,13 @@ dependencies = []
 cli = ["psycopg[binary]>=3.1"]
 dev = [
     "psycopg[binary]>=3.1",
+    # The ORM adapters are only worth shipping if they are exercised against a real
+    # server, so the libraries they wrap are test dependencies.
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.29",
+    "django>=4.2",
     "pytest>=8.0",
+    "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "mypy>=1.11",
@@ -59,6 +65,7 @@ packages = ["src/pghybrid"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires a live Postgres with pgvector"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
@@ -77,3 +84,9 @@ ignore = ["UP045", "UP007"]
 # this only sets which syntax mypy assumes while checking.
 python_version = "3.10"
 strict = true
+
+# Django ships no py.typed marker. The adapter touches exactly one symbol from it and
+# is exercised against a real Django connection in the integration suite.
+[[tool.mypy.overrides]]
+module = ["django.*"]
+ignore_missing_imports = true

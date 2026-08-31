@@ -106,6 +106,40 @@ const rows = await search.search("renewal notice period", { embedding, limit: 10
 You pass the embedding in. `pghybrid` never calls a model, so it works with OpenAI, Cohere,
 Voyage, a local sentence-transformer, or anything else — and it needs no API key.
 
+### Your driver, in one line
+
+Writing that `execute` closure yourself is fine, but it means choosing a placeholder
+style — and `$1` and `%s` are not interchangeable. Get it wrong and the error talks about
+parameter counts, not about the cause. The adapters set it for you:
+
+```python
+from pghybrid.adapters import for_psycopg, for_asyncpg, for_sqlalchemy, for_django
+
+search = for_psycopg(conn, table="chunks", text_column="content", vector_column="embedding")
+search = for_sqlalchemy(session, ...)      # Session, Connection or Engine
+search = for_django(using="default", ...)  # Django's connection, by alias
+search = for_asyncpg(pool, ...)            # returns an AsyncHybridSearch
+```
+
+```ts
+import { forPg, forPostgresJs, forDrizzle, forKysely } from "pghybrid";
+
+const search = forPg(pool, config);              // node-postgres
+const search = forPostgresJs(sql, config);       // postgres.js
+const search = forDrizzle(db, config);           // via Drizzle's underlying client
+const search = forKysely(db, config);            // via a raw compiled query
+```
+
+Every one of these is tested against a real server and asserted to return **the same rows
+in the same order with the same scores** — a driver is a transport, not a dialect.
+
+Prisma is not in that list because it has not been run here, and this project does not
+ship adapters it has not executed. It is one line, and it works:
+
+```ts
+const search = new HybridSearch(config, (sql, params) => prisma.$queryRawUnsafe(sql, ...params));
+```
+
 ## Two decisions that make it work
 
 Most hand-rolled Postgres hybrid search is subtly broken in the same two ways.

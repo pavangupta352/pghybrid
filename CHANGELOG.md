@@ -21,6 +21,11 @@ First release.
 - `init` — schema introspection and migration generation.
 - Recency decay, metadata filters scoped inside both candidate CTEs, `ts_headline`
   highlighting, `halfvec` support, and four distance metrics.
+- Driver adapters that also set the placeholder style, so it cannot be got wrong:
+  `for_psycopg`, `for_sqlalchemy`, `for_asyncpg`, `for_django` in Python; `forPg`,
+  `forPostgresJs`, `forDrizzle`, `forKysely` in TypeScript. Each is tested against a
+  live server and asserted to return identical rows, in identical order, with identical
+  scores.
 - Standalone SQL in `sql/`, usable without installing the package.
 - Python and TypeScript packages, generating identical SQL from a shared golden snapshot.
 

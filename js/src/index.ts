@@ -43,3 +43,5 @@ export {
 export type { Executor, MatchedBy, Row, SearchOptions, SearchResult } from "./search.js";
 
 export const VERSION = "0.1.0";
+
+export * from "./adapters.js";

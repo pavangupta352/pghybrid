@@ -403,3 +403,85 @@ def test_scores_survive_integer_typed_parameters(connection, config):
         "expression have been dropped and the arithmetic is truncating"
     )
     assert rows[0]["title"] == PLANTED_TITLE
+
+
+# --------------------------------------------------------------------------- adapters
+
+
+def _adapter_titles(search) -> list[str]:
+    return titles(search.search(DEMO_QUERY, embedding=query_vector(), limit=3))
+
+
+def test_every_adapter_returns_the_same_results(connection):
+    """A driver is a transport, not a dialect.
+
+    Each adapter also pins the placeholder style its driver needs, which is the single
+    thing users get wrong: $1 and %s are not interchangeable, and the failure message
+    talks about parameter counts rather than about the cause.
+    """
+    from pghybrid.adapters import for_psycopg, for_sqlalchemy
+
+    kwargs = dict(
+        table="chunks",
+        text_column="content",
+        vector_column="embedding",
+        tsvector_column="fts",
+        extra_columns=["title"],
+    )
+    expected = [PLANTED_TITLE, "Renewal pricing", "Renewal terms"]
+
+    assert _adapter_titles(for_psycopg(connection, **kwargs)) == expected
+
+    sqlalchemy = pytest.importorskip("sqlalchemy")
+    engine = sqlalchemy.create_engine(DSN.replace("postgresql://", "postgresql+psycopg://"))
+    try:
+        with engine.connect() as sa_connection:
+            assert _adapter_titles(for_sqlalchemy(sa_connection, **kwargs)) == expected
+        # An Engine and a Session reach the same place by different routes.
+        assert _adapter_titles(for_sqlalchemy(engine, **kwargs)) == expected
+        from sqlalchemy.orm import Session
+
+        with Session(engine) as session:
+            assert _adapter_titles(for_sqlalchemy(session, **kwargs)) == expected
+    finally:
+        engine.dispose()
+
+
+def test_adapters_override_a_wrong_paramstyle(connection):
+    """A psycopg connection cannot execute $1 however firmly the config asks for it."""
+    from pghybrid.adapters import for_psycopg
+
+    search = for_psycopg(
+        connection,
+        Config(
+            table="chunks",
+            text_column="content",
+            vector_column="embedding",
+            tsvector_column="fts",
+            extra_columns=["title"],
+            paramstyle="numeric",
+        ),
+    )
+    assert search.config.paramstyle == "pyformat"
+    assert _adapter_titles(search)[0] == PLANTED_TITLE
+
+
+@pytest.mark.asyncio
+async def test_asyncpg_adapter_matches_the_sync_result():
+    asyncpg = pytest.importorskip("asyncpg")
+    from pghybrid.adapters import for_asyncpg
+
+    conn = await asyncpg.connect(DSN)
+    try:
+        search = for_asyncpg(
+            conn,
+            table="chunks",
+            text_column="content",
+            vector_column="embedding",
+            tsvector_column="fts",
+            extra_columns=["title"],
+        )
+        results = await search.search(DEMO_QUERY, embedding=query_vector(), limit=3)
+    finally:
+        await conn.close()
+    assert titles(results) == [PLANTED_TITLE, "Renewal pricing", "Renewal terms"]
