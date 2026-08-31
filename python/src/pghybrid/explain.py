@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from .config import Config
-from .search import SearchResult, as_float, results_from_rows, row_mapping
+from .search import SearchResult, _normalise_text, as_float, results_from_rows, row_mapping
 from .sql import (
     FusionMethod,
     Params,
@@ -45,7 +45,7 @@ from .sql import (
 if TYPE_CHECKING:  # pragma: no cover - import cycle exists only for type checkers
     from .search import AsyncHybridSearch, HybridSearch
 
-FUSION_METHODS: tuple[str, ...] = ("rrf", "weighted")
+FUSION_METHODS: tuple[FusionMethod, ...] = ("rrf", "weighted")
 
 #: Columns worth using as a row label in the report, in order of preference. A report
 #: that prints 400 characters of chunk body per row is unreadable, and every corpus
@@ -269,8 +269,8 @@ class _Plan:
     filters: dict[str, Any] | None
     limit: int
     near_miss: int
+    #: The candidate depth the search would really use, after the widening below.
     candidate_limit: int
-    depth: int
     fusion: str
     label_column: str
     find: str | None
@@ -278,7 +278,7 @@ class _Plan:
 
 
 def _plan(
-    search: Any,
+    search: HybridSearch | AsyncHybridSearch,
     text: str | None,
     embedding: list[float] | None,
     *,
@@ -289,10 +289,13 @@ def _plan(
     fusion: FusionMethod | None,
     label_column: str | None,
     find: str | None,
-    methods: Sequence[str] = FUSION_METHODS,
+    methods: Sequence[FusionMethod] = FUSION_METHODS,
 ) -> _Plan:
     """Resolve the arguments and build the statements, without running anything."""
     cfg: Config = search.config
+    # Normalised here as well as in the client so that the lookup query, the report
+    # header and the search all agree on whether there is a text signal at all.
+    text = _normalise_text(text)
     if limit < 1:
         raise ValueError("limit must be >= 1")
     if near_miss < 0:
@@ -300,9 +303,7 @@ def _plan(
 
     chosen = fusion or cfg.fusion
     if chosen not in FUSION_METHODS:
-        raise ValueError(
-            f"unknown fusion method {chosen!r}; expected 'rrf' or 'weighted'"
-        )
+        raise ValueError(f"unknown fusion method {chosen!r}; expected 'rrf' or 'weighted'")
 
     resolved_candidates = candidate_limit or cfg.candidate_limit
     # The search itself raises candidate_limit when the window is wider than it, so the
@@ -312,7 +313,7 @@ def _plan(
     # Fetching the whole candidate set rather than the visible window costs nothing
     # extra in the database — the candidate CTEs are built either way — and it is what
     # lets `find` distinguish "ranked 40th" from "never retrieved".
-    queries = {
+    queries: dict[str, tuple[str, list[Any]]] = {
         method: search.build_sql(
             text,
             embedding,
@@ -332,7 +333,6 @@ def _plan(
         limit=limit,
         near_miss=near_miss,
         candidate_limit=depth,
-        depth=depth,
         fusion=chosen,
         label_column=label_column or _label_column(cfg),
         find=find,
@@ -363,6 +363,9 @@ def explain(
     statement locates it in the table and reports its rank under each signal. That
     statement scans, because the whole question is about a row the indexes did not
     return, so pass ``find`` when you are debugging rather than on every request.
+
+    Costs two statements — the same search under each fusion method, so the weight
+    comparison is measured rather than modelled — plus that lookup when it is needed.
     """
     plan = _plan(
         search,
@@ -554,6 +557,11 @@ def _stats(rows: Sequence[ExplainRow]) -> CandidateStats:
     )
 
 
+def _bounds(values: Sequence[float]) -> tuple[float, float]:
+    """Low and high of a signal's contributions; a signal that never fired spans nothing."""
+    return (min(values), max(values)) if values else (0.0, 0.0)
+
+
 def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> WeightReport:
     """Measure each signal's real influence over the candidate set.
 
@@ -574,16 +582,14 @@ def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> Weigh
     vector_values = [
         result.vector_contribution for result in results if result.vector_rank is not None
     ]
-    text_values = [
-        result.text_contribution for result in results if result.text_rank is not None
-    ]
+    text_values = [result.text_contribution for result in results if result.text_rank is not None]
 
     vector_weight = float(cfg.weights.vector)
     text_weight = float(cfg.weights.text)
     total_weight = vector_weight + text_weight
 
-    vector_low, vector_high = (min(vector_values), max(vector_values)) if vector_values else (0.0, 0.0)
-    text_low, text_high = (min(text_values), max(text_values)) if text_values else (0.0, 0.0)
+    vector_low, vector_high = _bounds(vector_values)
+    text_low, text_high = _bounds(text_values)
     vector_span = vector_high - vector_low
     text_span = text_high - text_low
     total_span = vector_span + text_span
@@ -636,9 +642,7 @@ def _assemble(plan: _Plan, raw: Mapping[str, list[SearchResult]]) -> ExplainRepo
         rows=candidates[:window],
         candidates=candidates,
         stats=_stats(candidates),
-        weights={
-            method: _measure(plan.config, method, results) for method, results in raw.items()
-        },
+        weights={method: _measure(plan.config, method, results) for method, results in raw.items()},
         find=None,
         label_column=plan.label_column,
         sql=sql,
@@ -679,9 +683,7 @@ def _matches_text(row: ExplainRow, needle: str) -> bool:
     lowered = needle.lower()
     if row.label.lower() == lowered:
         return True
-    return any(
-        isinstance(value, str) and lowered in value.lower() for value in row.row.values()
-    )
+    return any(isinstance(value, str) and lowered in value.lower() for value in row.row.values())
 
 
 def _find_in_candidates(report: ExplainReport, needle: str) -> FindReport | None:
@@ -697,21 +699,19 @@ def _find_in_candidates(report: ExplainReport, needle: str) -> FindReport | None
         return None
 
     exact = [row for row in report.candidates if row.label.strip().lower() == target.lower()]
-    matched = exact[0] if exact else next(
-        (row for row in report.candidates if _matches_text(row, target)), None
+    matched = (
+        exact[0]
+        if exact
+        else next((row for row in report.candidates if _matches_text(row, target)), None)
     )
     if matched is None:
         return None
 
-    window = report.limit + report.near_miss
     if matched.position <= report.limit:
         reason = f"returned at #{matched.position} — the query found it"
         remedy = None
     elif matched.near_miss:
-        reason = (
-            f"#{matched.position} in the near-miss band, just outside the top "
-            f"{report.limit}"
-        )
+        reason = f"#{matched.position} in the near-miss band, just outside the top {report.limit}"
         remedy = f"raising limit to {matched.position} would return it"
     else:
         reason = (
@@ -825,11 +825,7 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
         ")"
     )
     ctes.append(
-        "matches AS (\n"
-        "    SELECT count(*) AS n\n"
-        f"    FROM {table}\n"
-        f"    WHERE {contains}\n"
-        ")"
+        f"matches AS (\n    SELECT count(*) AS n\n    FROM {table}\n    WHERE {contains}\n)"
     )
 
     if plan.embedding is not None:
@@ -888,7 +884,9 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
                 found=False,
                 match_count=0,
                 reason=f"no row in {plan.config.table} contains that text (searched {columns})",
-                remedy="not indexed, so no ranking can retrieve it: an ingestion bug, not a tuning one",
+                remedy=(
+                    "not indexed, so no ranking can retrieve it: an ingestion bug, not a tuning one"
+                ),
             ),
         )
 
@@ -1096,9 +1094,12 @@ def _fit(text: str, width: int, align: str, ellipsis: str) -> str:
 
 
 def _line(cells: Sequence[str], cols: Sequence[_Col], ellipsis: str) -> str:
-    return _INDENT + _GAP.join(
-        _fit(cell, col.width, col.align, ellipsis) for cell, col in zip(cells, cols)
-    ).rstrip()
+    return (
+        _INDENT
+        + _GAP.join(
+            _fit(cell, col.width, col.align, ellipsis) for cell, col in zip(cells, cols)
+        ).rstrip()
+    )
 
 
 def _table_width(cols: Sequence[_Col]) -> int:
@@ -1169,7 +1170,7 @@ def _render(report: ExplainReport, *, width: int, ascii_only: bool) -> str:
     lines.extend(_render_weights(report, glyphs))
     if report.find is not None:
         lines.append("")
-        lines.extend(_render_find(report, glyphs))
+        lines.extend(_render_find(report, report.find, glyphs))
     return "\n".join(lines)
 
 
@@ -1237,15 +1238,15 @@ def _render_header(report: ExplainReport, glyphs: Mapping[str, str]) -> list[str
 
 
 def _render_table(report: ExplainReport, glyphs: Mapping[str, str], width: int) -> list[str]:
+    if not report.rows:
+        # Column headers over nothing read as a rendering fault rather than a result.
+        return [f"{_INDENT}no candidates: neither signal retrieved a row for this query"]
+
     cols = _columns(report, width)
     table_width = _table_width(cols)
     ellipsis = glyphs["ellipsis"]
     null = glyphs["null"]
     found_id = report.find.id if report.find is not None and report.find.position else None
-
-    if not report.rows:
-        # Column headers over nothing read as a rendering fault rather than a result.
-        return [f"{_INDENT}no candidates: neither signal retrieved a row for this query"]
 
     lines = [
         _group_line(cols),
@@ -1305,9 +1306,15 @@ _VERDICT_INDENT = _WEIGHT_COLS[0].width + len(_GAP)
 def _render_weights(report: ExplainReport, glyphs: Mapping[str, str]) -> list[str]:
     ellipsis = glyphs["ellipsis"]
     table_width = _table_width(_WEIGHT_COLS)
-    lines = [
+    heading = (
         f"{_INDENT}effective weights {glyphs['dot']} the share of the score range each "
-        "signal controls",
+        "signal controls"
+    )
+    if not report.candidates:
+        return [heading, "", f"{_INDENT * 2}nothing was retrieved, so there is nothing to measure"]
+
+    lines = [
+        heading,
         "",
         _line([col.header for col in _WEIGHT_COLS], _WEIGHT_COLS, ellipsis),
         _rule(table_width, glyphs["rule"]),
@@ -1339,9 +1346,7 @@ def _render_weights(report: ExplainReport, glyphs: Mapping[str, str]) -> list[st
     return lines
 
 
-def _verdict(
-    report: ExplainReport, measurement: WeightReport, glyphs: Mapping[str, str]
-) -> str:
+def _verdict(report: ExplainReport, measurement: WeightReport, glyphs: Mapping[str, str]) -> str:
     """One line stating the gap between the configured split and the measured one."""
     missing = []
     if report.embedding_dimensions is None:
@@ -1353,19 +1358,17 @@ def _verdict(
         # about the weights and should not be read as if it did.
         return f"single-signal query ({' and '.join(missing)}): the weights never competed"
 
-    nominal = f"{measurement.vector.nominal_share * 100:.0f}/{measurement.text.nominal_share * 100:.0f}"
-    if measurement.vector.effective_share is None:
-        return f"configured {nominal} {glyphs['arrow']} not measurable: every candidate scored alike"
+    vector, text = measurement.vector, measurement.text
+    nominal = f"{vector.nominal_share * 100:.0f}/{text.nominal_share * 100:.0f}"
+    if vector.effective_share is None or text.effective_share is None:
+        return (
+            f"configured {nominal} {glyphs['arrow']} not measurable: every candidate scored alike"
+        )
 
-    effective = (
-        f"{measurement.vector.effective_share * 100:.0f}/"
-        f"{measurement.text.effective_share * 100:.0f}"
-    )
+    effective = f"{vector.effective_share * 100:.0f}/{text.effective_share * 100:.0f}"
     line = f"configured {nominal} {glyphs['arrow']} measured {effective}"
 
-    spans = sorted(
-        ((measurement.vector.span, "vector"), (measurement.text.span, "text")), reverse=True
-    )
+    spans = sorted(((vector.span, "vector"), (text.span, "text")), reverse=True)
     (wide, wide_name), (narrow, narrow_name) = spans
     if narrow > 0 and wide / narrow >= 1.5:
         line += (
@@ -1377,9 +1380,9 @@ def _verdict(
     return line
 
 
-def _render_find(report: ExplainReport, glyphs: Mapping[str, str]) -> list[str]:
-    finding = report.find
-    assert finding is not None
+def _render_find(
+    report: ExplainReport, finding: FindReport, glyphs: Mapping[str, str]
+) -> list[str]:
     dot = f" {glyphs['dot']} "
     lines = [f'{_INDENT}find {glyphs["dot"]} "{finding.query}"', ""]
     body = _INDENT * 2
@@ -1421,9 +1424,7 @@ def _render_find(report: ExplainReport, glyphs: Mapping[str, str]) -> list[str]:
     lines.append(f"{body}{finding.reason}")
 
     if finding.match_count > 1:
-        lines.append(
-            f"{body}{finding.match_count} rows contain that text; the closest is shown"
-        )
+        lines.append(f"{body}{finding.match_count} rows contain that text; the closest is shown")
     if finding.remedy:
         lines.append(f"{body}{glyphs['arrow']} {finding.remedy}")
     return lines

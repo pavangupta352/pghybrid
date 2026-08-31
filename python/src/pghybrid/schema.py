@@ -22,16 +22,17 @@ from __future__ import annotations
 import inspect
 import math
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Optional
 
-from .config import METRICS, Config, Metric
-from .sql import quote_ident
+from .config import METRICS, Config, Metric, VectorType
 
 # Imported rather than re-derived: the stored tsvector column and the expression the
 # query builder computes inline must be character-identical, or switching
 # Config.tsvector_column on and off would silently change which rows match.
 from .sql import _tsvector_expr as _inline_tsvector_expr
+from .sql import quote_ident
 
 Row = Sequence[Any]
 Execute = Callable[..., Sequence[Row]]
@@ -59,17 +60,43 @@ IVFFLAT_SQRT_THRESHOLD = 1_000_000
 
 #: Column names that are usually the body of a document, best first.
 _TEXT_NAME_PREFERENCE = (
-    "content", "chunk", "chunk_text", "body", "text", "document", "passage",
-    "page_content", "description", "summary", "title", "name",
+    "content",
+    "chunk",
+    "chunk_text",
+    "body",
+    "text",
+    "document",
+    "passage",
+    "page_content",
+    "description",
+    "summary",
+    "title",
+    "name",
 )
 #: Column names that are usually an embedding, best first.
 _VECTOR_NAME_PREFERENCE = ("embedding", "embeddings", "vector", "vec", "emb")
 #: Columns a multi-tenant application almost always filters on.
 _FILTER_NAME_HINTS = (
-    "tenant_id", "org_id", "organization_id", "workspace_id", "account_id",
-    "customer_id", "user_id", "project_id", "collection_id", "namespace",
-    "source", "language", "lang", "status", "kind", "type", "category",
-    "is_deleted", "deleted_at", "archived",
+    "tenant_id",
+    "org_id",
+    "organization_id",
+    "workspace_id",
+    "account_id",
+    "customer_id",
+    "user_id",
+    "project_id",
+    "collection_id",
+    "namespace",
+    "source",
+    "language",
+    "lang",
+    "status",
+    "kind",
+    "type",
+    "category",
+    "is_deleted",
+    "deleted_at",
+    "archived",
 )
 
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
@@ -79,10 +106,26 @@ _IDENT_SAFE_RE = re.compile(r"[^A-Za-z0-9_]+")
 #: Printing them turns the index list into noise and hides the ones that matter.
 _DEFAULT_OPCLASSES = frozenset(
     {
-        "int2_ops", "int4_ops", "int8_ops", "text_ops", "varchar_ops", "bpchar_ops",
-        "uuid_ops", "timestamptz_ops", "timestamp_ops", "date_ops", "bool_ops",
-        "numeric_ops", "float4_ops", "float8_ops", "tsvector_ops", "jsonb_ops",
-        "array_ops", "oid_ops", "name_ops", "citext_ops",
+        "int2_ops",
+        "int4_ops",
+        "int8_ops",
+        "text_ops",
+        "varchar_ops",
+        "bpchar_ops",
+        "uuid_ops",
+        "timestamptz_ops",
+        "timestamp_ops",
+        "date_ops",
+        "bool_ops",
+        "numeric_ops",
+        "float4_ops",
+        "float8_ops",
+        "tsvector_ops",
+        "jsonb_ops",
+        "array_ops",
+        "oid_ops",
+        "name_ops",
+        "citext_ops",
     }
 )
 
@@ -374,8 +417,10 @@ class Executor:
     """
 
     def __init__(self, execute: Execute) -> None:
+        self._execute: Execute
+        self._accepts_params: bool
         if isinstance(execute, Executor):
-            self._execute: Execute = execute._execute
+            self._execute = execute._execute
             self._accepts_params = execute._accepts_params
             return
         if not callable(execute):
@@ -635,8 +680,17 @@ def _read_indexes(run: Executor, oid: int) -> list[IndexInfo]:
     )
     indexes = []
     for (
-        name, method, definition, size, valid, primary, unique, reloptions, predicate,
-        keys, opclasses,
+        name,
+        method,
+        definition,
+        size,
+        valid,
+        primary,
+        unique,
+        reloptions,
+        predicate,
+        keys,
+        opclasses,
     ) in rows:
         indexes.append(
             IndexInfo(
@@ -748,7 +802,7 @@ def suggest_config(info: TableInfo) -> Config:
 
     index = info.vector_index_for(vector_column.name)
     metric = index.metric if index is not None and index.metric is not None else METRICS["cosine"]
-    vector_type = "halfvec" if vector_column.type_name == "halfvec" else "vector"
+    vector_type: VectorType = "halfvec" if vector_column.type_name == "halfvec" else "vector"
 
     return Config(
         table=info.qualified,
@@ -849,7 +903,7 @@ def _detect_language(tsvector_column: Optional[ColumnInfo]) -> str:
     return "english"
 
 
-def _pick_filter_columns(info: TableInfo, exclude: set) -> list[str]:
+def _pick_filter_columns(info: TableInfo, exclude: set[str]) -> list[str]:
     """Columns worth allowing as filters: the ones already indexed, plus tenant keys.
 
     ``filter_columns`` is an allow-list, so being generous here weakens it. The rule is
@@ -1094,7 +1148,11 @@ def _vector_index_statements(config: Config, info: TableInfo, table: str) -> lis
     limit = MAX_INDEXED_DIMENSIONS.get(stored_type, 2000)
     over_limit = dimensions > limit
 
-    if existing is not None and existing.metric is not None and existing.metric is not config.metric:
+    if (
+        existing is not None
+        and existing.metric is not None
+        and existing.metric is not config.metric
+    ):
         statements.append(
             Statement(
                 sql=f"-- DROP INDEX {quote_ident(existing.name)};",
@@ -1218,7 +1276,11 @@ def _vector_index_statements(config: Config, info: TableInfo, table: str) -> lis
         )
     )
 
-    if stored_type == "vector" and rows >= 100_000 and dimensions <= MAX_INDEXED_DIMENSIONS["halfvec"]:
+    if (
+        stored_type == "vector"
+        and rows >= 100_000
+        and dimensions <= MAX_INDEXED_DIMENSIONS["halfvec"]
+    ):
         expression = f"(({column_sql}::halfvec({dimensions})) {config.metric.ops_halfvec})"
         half_name = _index_name(info, column.name, "hnsw_halfvec")
         statements.append(

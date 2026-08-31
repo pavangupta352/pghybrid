@@ -78,6 +78,9 @@ export function quoteIdent(name: string): string {
  * depends on the driver, and because one logical value may appear in the statement
  * more than once.
  */
+// A control character is the point: it cannot occur in a statement this builder
+// assembles, so a token can never collide with SQL text or with a bound value.
+// eslint-disable-next-line no-control-regex
 const TOKEN_RE = /\x01p(\d+)\x01/g;
 
 function token(index: number): string {

@@ -218,9 +218,7 @@ class _SearchBase:
 
     def __init__(self, config: Config, execute: Any) -> None:
         if not isinstance(config, Config):
-            raise TypeError(
-                f"config must be a pghybrid.Config, got {type(config).__name__}"
-            )
+            raise TypeError(f"config must be a pghybrid.Config, got {type(config).__name__}")
         if not callable(execute):
             raise TypeError(
                 "execute must be callable as execute(sql, params). For psycopg: "
@@ -303,7 +301,9 @@ class HybridSearch(_SearchBase):
         )
         return results_from_rows(self.execute(sql, params))
 
-    def explain(self, text: str | None = None, embedding: list[float] | None = None, **kwargs: Any) -> Any:
+    def explain(
+        self, text: str | None = None, embedding: list[float] | None = None, **kwargs: Any
+    ) -> Any:
         """Diagnose one query. See :func:`pghybrid.explain.explain` for the arguments."""
         # Imported here rather than at module scope so the dependency runs one way:
         # the diagnostic layer is allowed to know about the runtime, not the reverse.

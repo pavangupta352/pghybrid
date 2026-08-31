@@ -46,9 +46,7 @@ def quote_ident(name: str) -> str:
 
     parts = name.split(".")
     if len(parts) > 2:
-        raise IdentifierError(
-            f"{name!r} has too many parts; expected 'name' or 'schema.name'"
-        )
+        raise IdentifierError(f"{name!r} has too many parts; expected 'name' or 'schema.name'")
 
     quoted = []
     for part in parts:
@@ -275,7 +273,7 @@ def build_search_sql(
     have_vector = embedding is not None
     have_text = text is not None
 
-    if have_vector:
+    if embedding is not None:
         vec = params.add_cast(_format_vector(embedding), cfg.vector_type)
         distance = _distance_expr(cfg, vec)
         where = f"WHERE {quote_ident(cfg.vector_column)} IS NOT NULL"
@@ -292,7 +290,7 @@ def build_search_sql(
             ")"
         )
 
-    if have_text:
+    if text is not None:
         tsquery = _tsquery_expr(cfg, text, params)
         tsv = _tsvector_expr(cfg)
         rank_expr = f"{cfg.rank_function}({tsv}, tsq)"

@@ -159,9 +159,7 @@ def test_valid_text_match_modes_are_accepted(text_match: str) -> None:
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("vector", "text"), [(-0.1, 1.0), (1.0, -0.1), (-1.0, -1.0), (0.0, -1.0)]
-)
+@pytest.mark.parametrize(("vector", "text"), [(-0.1, 1.0), (1.0, -0.1), (-1.0, -1.0), (0.0, -1.0)])
 def test_negative_weights_are_rejected(vector: float, text: float) -> None:
     """A negative weight would rank a signal's best results last, which is never meant."""
     with pytest.raises(ValueError) as excinfo:

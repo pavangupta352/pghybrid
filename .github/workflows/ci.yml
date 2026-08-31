@@ -109,7 +109,7 @@ jobs:
       # something fails when they do. Both render the same fixtures and the outputs
       # are compared byte for byte.
       - name: Compare generated SQL
-        run: python3 scripts/check_parity.py
+        run: node scripts/check_parity.mjs
 
   sql:
     name: standalone SQL runs unmodified

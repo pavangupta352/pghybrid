@@ -138,7 +138,9 @@ class Config:
     #: half of a hybrid search return nothing for most multi-word queries, which
     #: silently degrades the whole system to vector-only search.
     text_match: TextMatch = "any"
-    headline_options: str = "StartSel=<mark>, StopSel=</mark>, MaxFragments=2, MinWords=8, MaxWords=30"
+    headline_options: str = (
+        "StartSel=<mark>, StopSel=</mark>, MaxFragments=2, MinWords=8, MaxWords=30"
+    )
 
     def __post_init__(self) -> None:
         if isinstance(self.metric, str):
@@ -146,21 +148,14 @@ class Config:
                 self.metric = METRICS[self.metric]
             except KeyError:
                 raise ValueError(
-                    f"unknown metric {self.metric!r}; expected one of "
-                    f"{', '.join(sorted(METRICS))}"
+                    f"unknown metric {self.metric!r}; expected one of {', '.join(sorted(METRICS))}"
                 ) from None
         if self.text_match not in ("any", "all"):
-            raise ValueError(
-                f"text_match must be 'any' or 'all', got {self.text_match!r}"
-            )
+            raise ValueError(f"text_match must be 'any' or 'all', got {self.text_match!r}")
         if self.paramstyle not in ("numeric", "pyformat"):
-            raise ValueError(
-                f"paramstyle must be 'numeric' or 'pyformat', got {self.paramstyle!r}"
-            )
+            raise ValueError(f"paramstyle must be 'numeric' or 'pyformat', got {self.paramstyle!r}")
         if self.vector_type not in ("vector", "halfvec"):
-            raise ValueError(
-                f"vector_type must be 'vector' or 'halfvec', got {self.vector_type!r}"
-            )
+            raise ValueError(f"vector_type must be 'vector' or 'halfvec', got {self.vector_type!r}")
         if self.k < 0:
             raise ValueError("k must be non-negative")
         if self.candidate_limit < 1:

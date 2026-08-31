@@ -92,26 +92,29 @@ describe("metrics", () => {
 });
 
 describe("enumerated fields", () => {
-  it("names the valid options for an invalid vectorType", () => {
-    expect(() => resolveConfig({ ...REQUIRED, vectorType: "float16" as never })).toThrow(
-      /float16.*vector.*halfvec/s,
-    );
-  });
-
-  it("names the valid options for an invalid paramStyle", () => {
+  it.each([
+    ["vectorType", { vectorType: "float16" }, "float16", ["vector", "halfvec"]],
     // Getting the placeholder style wrong is the first thing that breaks for a new
-    // user: node-postgres raises a syntax error on %s and psycopg raises one on $1, and
-    // neither message mentions this library.
-    expect(() => resolveConfig({ ...REQUIRED, paramStyle: "qmark" as never })).toThrow(
-      /qmark.*numeric.*pyformat/s,
-    );
-  });
-
-  it("names the valid options for an invalid textMatch", () => {
-    expect(() => resolveConfig({ ...REQUIRED, textMatch: "either" as never })).toThrow(
-      /either.*'any'.*'all'/s,
-    );
-  });
+    // user: node-postgres raises a syntax error on %s and psycopg raises one on $1,
+    // and neither message mentions this library.
+    ["paramStyle", { paramStyle: "qmark" }, "qmark", ["numeric", "pyformat"]],
+    ["textMatch", { textMatch: "either" }, "either", ["'any'", "'all'"]],
+  ] as [string, Record<string, string>, string, string[]][])(
+    "names the valid options for an invalid %s",
+    (_field, override, bad, options) => {
+      let message = "";
+      try {
+        resolveConfig({ ...REQUIRED, ...override } as Config);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      // An error that only says "invalid" costs the reader a trip to the source.
+      expect(message).toContain(bad);
+      for (const option of options) {
+        expect(message).toContain(option);
+      }
+    },
+  );
 
   it.each(["vector", "halfvec"] as const)("accepts the vector type %s", (vectorType) => {
     expect(resolveConfig({ ...REQUIRED, vectorType }).vectorType).toBe(vectorType);

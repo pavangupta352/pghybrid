@@ -191,9 +191,7 @@ def test_parameter_count_differs_between_styles_for_the_same_query(make_config: 
         highlight=True,
     )
     numeric_sql, numeric_params = build_search_sql(make_config(), **kwargs)
-    pyformat_sql, pyformat_params = build_search_sql(
-        make_config(paramstyle="pyformat"), **kwargs
-    )
+    pyformat_sql, pyformat_params = build_search_sql(make_config(paramstyle="pyformat"), **kwargs)
 
     assert len(pyformat_params) > len(numeric_params)
     assert len(numeric_params) == len(set(re.findall(r"\$\d+", numeric_sql)))
@@ -369,9 +367,7 @@ def test_weighted_fusion_scores_on_the_raw_signals(config: Config) -> None:
 def test_fusion_argument_overrides_the_config(make_config: Any) -> None:
     cfg = make_config(fusion="weighted")
     default_sql, _ = build_search_sql(cfg, embedding=[0.1], text="renewal", limit=5)
-    override_sql, _ = build_search_sql(
-        cfg, embedding=[0.1], text="renewal", limit=5, fusion="rrf"
-    )
+    override_sql, _ = build_search_sql(cfg, embedding=[0.1], text="renewal", limit=5, fusion="rrf")
     assert "1.0 - v.distance" in default_sql
     assert "1.0 - v.distance" not in override_sql
 
@@ -414,9 +410,7 @@ def test_filters_do_not_appear_after_the_fusion(config: Config) -> None:
 
 
 def test_a_single_signal_query_applies_the_filter_once(config: Config) -> None:
-    sql, _ = build_search_sql(
-        config, embedding=[0.1], text=None, limit=5, filters={"tenant_id": 7}
-    )
+    sql, _ = build_search_sql(config, embedding=[0.1], text=None, limit=5, filters={"tenant_id": 7})
     assert sql.count('"tenant_id" = ') == 1
 
 
@@ -435,9 +429,7 @@ def test_filters_are_anded_onto_the_existing_where_clause(config: Config) -> Non
 def test_unknown_filter_column_is_rejected(config: Config) -> None:
     """Filter columns are declared up front so they can be validated and indexed."""
     with pytest.raises(ValueError) as excinfo:
-        build_search_sql(
-            config, embedding=[0.1], text=None, limit=5, filters={"deleted_at": None}
-        )
+        build_search_sql(config, embedding=[0.1], text=None, limit=5, filters={"deleted_at": None})
     message = str(excinfo.value)
     assert "deleted_at" in message
     assert "tenant_id" in message and "lang" in message
@@ -513,9 +505,7 @@ def test_ts_headline_is_evaluated_only_after_ranking(config: Config) -> None:
     Inside a candidate CTE it would run for every row the signal considered. In the final
     SELECT it runs only for the page being returned.
     """
-    sql, _ = build_search_sql(
-        config, embedding=[0.1], text="renewal", limit=5, highlight=True
-    )
+    sql, _ = build_search_sql(config, embedding=[0.1], text="renewal", limit=5, highlight=True)
     assert sql.count("ts_headline(") == 1
     assert "ts_headline(" in final_select(sql)
     assert "ts_headline(" not in cte_block(sql)
@@ -524,9 +514,7 @@ def test_ts_headline_is_evaluated_only_after_ranking(config: Config) -> None:
 
 def test_headline_reuses_the_parsed_tsquery(config: Config) -> None:
     """Re-parsing the query string for the headline could highlight different terms."""
-    sql, _ = build_search_sql(
-        config, embedding=[0.1], text="renewal", limit=5, highlight=True
-    )
+    sql, _ = build_search_sql(config, embedding=[0.1], text="renewal", limit=5, highlight=True)
     assert "(SELECT tsq FROM text_query)" in final_select(sql)
 
 
@@ -538,9 +526,7 @@ def test_highlight_is_ignored_without_a_text_signal(config: Config) -> None:
 
 
 def test_headline_options_are_bound_not_interpolated(config: Config) -> None:
-    sql, params = build_search_sql(
-        config, embedding=[0.1], text="renewal", limit=5, highlight=True
-    )
+    sql, params = build_search_sql(config, embedding=[0.1], text="renewal", limit=5, highlight=True)
     assert "StartSel" not in sql
     assert any(isinstance(param, str) and "StartSel" in param for param in params)
 
@@ -663,7 +649,7 @@ def test_recency_leaves_rows_with_no_timestamp_undecayed(make_config: Any) -> No
     assert decay.startswith("coalesce(")
     assert decay.endswith(", 1.0)")
     # A future timestamp must not amplify the score past 1.0 either.
-    assert "greatest(extract(epoch from (now() - \"published_at\")), 0)" in decay
+    assert 'greatest(extract(epoch from (now() - "published_at")), 0)' in decay
     # Half-life is expressed in days, so the epoch seconds are scaled by a day.
     assert "* 86400.0" in decay
 
@@ -706,9 +692,7 @@ def test_candidate_limit_is_left_alone_when_already_large_enough(make_config: An
 
 def test_candidate_limit_argument_overrides_the_config(make_config: Any) -> None:
     cfg = make_config(candidate_limit=50)
-    sql, params = build_search_sql(
-        cfg, embedding=[0.1], text=None, limit=10, candidate_limit=120
-    )
+    sql, params = build_search_sql(cfg, embedding=[0.1], text=None, limit=10, candidate_limit=120)
     assert bound_limit(cte(sql, "vector_candidates"), params) == 120
 
 
@@ -731,7 +715,7 @@ def test_each_candidate_cte_orders_and_limits_independently(config: Config) -> N
     sql, _ = build_search_sql(config, embedding=[0.1], text="renewal", limit=5)
     vector = cte(sql, "vector_candidates")
     text = cte(sql, "text_candidates")
-    assert "ORDER BY \"embedding\" <=>" in vector
+    assert 'ORDER BY "embedding" <=>' in vector
     assert "rank() OVER (ORDER BY" in vector
     assert "DESC" in text and "rank() OVER (ORDER BY" in text
 

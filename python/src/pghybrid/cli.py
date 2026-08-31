@@ -17,7 +17,8 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Optional
 
 from .config import Config, Recency, Weights
 from .doctor import doctor
@@ -43,9 +44,7 @@ def _connect(dsn: Optional[str]) -> Any:
     """Open a connection, with an error that names the fix rather than the exception."""
     dsn = dsn or os.environ.get("PGHYBRID_DSN") or os.environ.get("DATABASE_URL")
     if not dsn:
-        raise CliError(
-            "no connection string. Pass --dsn, or set PGHYBRID_DSN or DATABASE_URL."
-        )
+        raise CliError("no connection string. Pass --dsn, or set PGHYBRID_DSN or DATABASE_URL.")
     try:
         import psycopg
     except ModuleNotFoundError as exc:  # pragma: no cover - depends on the install
@@ -145,8 +144,7 @@ def _resolve_config(connection: Any, args: argparse.Namespace) -> Config:
             config.recency = Recency(column=column.strip(), half_life_days=float(half_life))
         except ValueError as exc:
             raise CliError(
-                "--recency takes a column and a half-life in days, "
-                "e.g. --recency created_at,90"
+                "--recency takes a column and a half-life in days, e.g. --recency created_at,90"
             ) from exc
 
     # psycopg is the only driver the CLI opens for itself, and it wants %s.
@@ -282,9 +280,7 @@ def command_explain(args: argparse.Namespace) -> int:
 def command_doctor(args: argparse.Namespace) -> int:
     connection = _connect(args.dsn)
     config = _resolve_config(connection, args)
-    report = doctor(
-        dbapi_executor(connection), config, sample=args.sample, k=args.k
-    )
+    report = doctor(dbapi_executor(connection), config, sample=args.sample, k=args.k)
     print(report.to_text())
     return 0
 
@@ -373,22 +369,16 @@ def build_parser() -> argparse.ArgumentParser:
     add_query(explain_parser)
     explain_parser.add_argument("--limit", type=int, default=10)
     explain_parser.add_argument("--near-miss", type=int, default=10, dest="near_miss")
-    explain_parser.add_argument(
-        "--find", metavar="TEXT", help="text you expected to be retrieved"
-    )
+    explain_parser.add_argument("--find", metavar="TEXT", help="text you expected to be retrieved")
     explain_parser.set_defaults(func=command_explain)
 
-    doctor_parser = subparsers.add_parser(
-        "doctor", help="measure recall and grade the indexes"
-    )
+    doctor_parser = subparsers.add_parser("doctor", help="measure recall and grade the indexes")
     add_connection(doctor_parser)
     doctor_parser.add_argument("--sample", type=int, default=50)
     doctor_parser.add_argument("--k", type=int, default=10)
     doctor_parser.set_defaults(func=command_doctor)
 
-    sql_parser = subparsers.add_parser(
-        "sql", help="print the generated SQL without a database"
-    )
+    sql_parser = subparsers.add_parser("sql", help="print the generated SQL without a database")
     sql_parser.add_argument("--table", required=True)
     sql_parser.add_argument("query", nargs="?", default="example query")
     sql_parser.add_argument("--text-column")

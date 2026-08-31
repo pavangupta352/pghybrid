@@ -18,13 +18,15 @@ The ``execute`` argument is the same callable :mod:`pghybrid.schema` takes; see
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import re
 import time
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator, Optional, Sequence
+from typing import Any, Callable, Optional
 
 from .config import Config
 from .schema import (
@@ -71,7 +73,7 @@ class Timing:
     mean_ms: float = 0.0
 
     @classmethod
-    def of(cls, samples: Sequence[float]) -> "Timing":
+    def of(cls, samples: Sequence[float]) -> Timing:
         if not samples:
             return cls()
         ordered = sorted(samples)
@@ -217,7 +219,7 @@ def doctor(
     sample: int = 50,
     k: int = 10,
     statement_timeout_ms: int = DEFAULT_STATEMENT_TIMEOUT_MS,
-    filters: Optional[dict] = None,
+    filters: Optional[dict[str, Any]] = None,
     sweep: bool = True,
     allow_write: bool = False,
 ) -> DoctorReport:
@@ -294,7 +296,7 @@ def _dedupe(findings: Sequence[Finding]) -> list[Finding]:
     unfiltered measurement and every filtered one -- and repeating it makes the report
     look like several problems instead of one.
     """
-    seen: set = set()
+    seen: set[tuple[str, str, str]] = set()
     unique: list[Finding] = []
     for finding in findings:
         key = (finding.level, finding.title, finding.detail)
@@ -314,9 +316,7 @@ class _Prober:
     per query would triple the round trips and make the latency numbers mostly network.
     """
 
-    def __init__(
-        self, run: Executor, config: Config, info: TableInfo, *, timeout_ms: int
-    ) -> None:
+    def __init__(self, run: Executor, config: Config, info: TableInfo, *, timeout_ms: int) -> None:
         self.run = run
         self.config = config
         self.info = info
@@ -364,15 +364,13 @@ class _Prober:
             self._rollback()
 
     def _rollback(self) -> None:
-        try:
+        # A rollback that fails leaves nothing to do about it, and raising here would
+        # replace the real error with a less useful one.
+        with contextlib.suppress(Exception):
             self.run("ROLLBACK")
-        except Exception:
-            pass
 
     @contextmanager
-    def session(
-        self, *, settings: Sequence[str] = (), read_only: bool = True
-    ) -> Iterator[None]:
+    def session(self, *, settings: Sequence[str] = (), read_only: bool = True) -> Iterator[None]:
         """One transaction, rolled back on the way out.
 
         ROLLBACK rather than COMMIT for two reasons: it undoes every SET LOCAL even on
@@ -498,9 +496,7 @@ class _Prober:
 
     # -- the measurement ----------------------------------------------------
 
-    def vector_sql(
-        self, vector: str, k: int, *, predicate: str = "", exact: bool = False
-    ) -> str:
+    def vector_sql(self, vector: str, k: int, *, predicate: str = "", exact: bool = False) -> str:
         """The vector half of the hybrid query, which is the half an index changes."""
         cast = f"{vector}::{self.config.vector_type}"
         distance = f"{self.vector_column} {self.config.metric.operator} {cast}"
@@ -512,8 +508,7 @@ class _Prober:
             distance = f"({distance}) + 0"
         where = f"WHERE {self.vector_column} IS NOT NULL{predicate}"
         return (
-            f"SELECT {self.id_column} FROM {self.table} {where} "
-            f"ORDER BY {distance} LIMIT {int(k)}"
+            f"SELECT {self.id_column} FROM {self.table} {where} ORDER BY {distance} LIMIT {int(k)}"
         )
 
     def ground_truth(
@@ -547,18 +542,20 @@ class _Prober:
                 truth = [
                     [
                         row[0]
-                        for row in self.run(
-                            self.vector_sql(v, k, predicate=predicate, exact=True)
-                        )
+                        for row in self.run(self.vector_sql(v, k, predicate=predicate, exact=True))
                     ]
                     for v in vectors
                 ]
         except Exception as exc:
             self.errors.append(f"exact ground truth failed: {_short(exc)}")
-            return [], False, Finding(
-                "error",
-                "recall could not be measured",
-                f"The exact-search probe did not complete: {_short(exc)}",
+            return (
+                [],
+                False,
+                Finding(
+                    "error",
+                    "recall could not be measured",
+                    f"The exact-search probe did not complete: {_short(exc)}",
+                ),
             )
         note = Finding(
             "info",
@@ -651,7 +648,9 @@ class _Prober:
             guc = "hnsw.ef_search"
             current = _as_int(gucs.get(guc), HNSW_DEFAULT_EF_SEARCH)
             default = HNSW_DEFAULT_EF_SEARCH
-            values = _sweep_values([k, k * 2, k * 4, 40, 100, 400, current], low=max(k, 1), high=1000)
+            values = _sweep_values(
+                [k, k * 2, k * 4, 40, 100, 400, current], low=max(k, 1), high=1000
+            )
         else:
             guc = "ivfflat.probes"
             current = _as_int(gucs.get(guc), IVFFLAT_DEFAULT_PROBES)
@@ -689,7 +688,7 @@ class _Prober:
         sql: str,
         params: Optional[Sequence[Any]] = None,
         settings: Sequence[str] = (),
-    ) -> Optional[dict]:
+    ) -> Optional[dict[str, Any]]:
         """EXPLAIN without ANALYZE: it costs nothing and executes nothing."""
         try:
             with self.session(settings=settings):
@@ -698,20 +697,20 @@ class _Prober:
             self.errors.append(f"EXPLAIN failed: {_short(exc)}")
             return None
 
-    def explain_here(self, sql: str, params: Optional[Sequence[Any]] = None) -> Optional[dict]:
+    def explain_here(
+        self, sql: str, params: Optional[Sequence[Any]] = None
+    ) -> Optional[dict[str, Any]]:
         """EXPLAIN inside the session that is already open, settings and all."""
         rows = self.run("EXPLAIN (FORMAT JSON) " + sql, params)
         return _explain_plan(rows[0][0]) if rows else None
 
-    def uses_vector_index(self, plan: Optional[dict]) -> Optional[bool]:
+    def uses_vector_index(self, plan: Optional[dict[str, Any]]) -> Optional[bool]:
         if plan is None:
             return None
         names = {i.name for i in self.info.indexes if i.is_vector}
         return any(node.get("Index Name") in names for node in _walk(plan))
 
-    def _plan_uses_vector_index(
-        self, sql: str, settings: Sequence[str] = ()
-    ) -> Optional[bool]:
+    def _plan_uses_vector_index(self, sql: str, settings: Sequence[str] = ()) -> Optional[bool]:
         return self.uses_vector_index(self.explain(sql, settings=settings))
 
     def _active_vector_index(self) -> Optional[IndexInfo]:
@@ -829,7 +828,7 @@ class _Prober:
 
     # -- filters ------------------------------------------------------------
 
-    def filter_probes(self, filters: Optional[dict]) -> list[FilterProbe]:
+    def filter_probes(self, filters: Optional[dict[str, Any]]) -> list[FilterProbe]:
         """Pick one realistic value per filter column, preferring the common case.
 
         The most common value is deliberate: the biggest tenant is where filtered
@@ -903,9 +902,7 @@ class _Prober:
         """
         if self.info.row_count <= 0:
             return None
-        plan = self.explain(
-            f"SELECT 1 FROM {self.table} WHERE {quote_ident(column)} = {literal}"
-        )
+        plan = self.explain(f"SELECT 1 FROM {self.table} WHERE {quote_ident(column)} = {literal}")
         if plan is None:
             return None
         return min(float(plan.get("Plan Rows", 0) or 0) / self.info.row_count, 1.0)
@@ -1032,18 +1029,21 @@ def _check_inventory(report: DoctorReport, probe: _Prober) -> None:
             )
         )
 
-    if info.pgvector_version and info.pgvector_available_version:
-        if parse_version(info.pgvector_available_version) > parse_version(info.pgvector_version):
-            add(
-                Finding(
-                    "info",
-                    f"pgvector {info.pgvector_available_version} is available "
-                    f"(this database runs {info.pgvector_version})",
-                    "0.8 added iterative index scans, which is the fix for recall "
-                    "collapsing under selective filters.",
-                    fix="ALTER EXTENSION vector UPDATE;",
-                )
+    if (
+        info.pgvector_version
+        and info.pgvector_available_version
+        and parse_version(info.pgvector_available_version) > parse_version(info.pgvector_version)
+    ):
+        add(
+            Finding(
+                "info",
+                f"pgvector {info.pgvector_available_version} is available "
+                f"(this database runs {info.pgvector_version})",
+                "0.8 added iterative index scans, which is the fix for recall "
+                "collapsing under selective filters.",
+                fix="ALTER EXTENSION vector UPDATE;",
             )
+        )
 
     if info.is_partitioned:
         add(
@@ -1152,8 +1152,12 @@ def _measure_filtered(
                 report.findings.append(note)
             continue
         result = probe.measure(
-            vectors, truth, k, label=f"filtered on {filter_probe.predicate}",
-            predicate=predicate, exact=exact_ok,
+            vectors,
+            truth,
+            k,
+            label=f"filtered on {filter_probe.predicate}",
+            predicate=predicate,
+            exact=exact_ok,
         )
         if result is None:
             continue
@@ -1162,16 +1166,14 @@ def _measure_filtered(
             worst = result
         if result.used_vector_index is False:
             selectivity = (
-                f" (the planner expects it to keep {filter_probe.selectivity:.1%} of the "
-                "table)"
+                f" (the planner expects it to keep {filter_probe.selectivity:.1%} of the table)"
                 if filter_probe.selectivity is not None
                 else ""
             )
             report.findings.append(
                 Finding(
                     "warn",
-                    f"the vector index is not used when filtering on "
-                    f"{filter_probe.column}",
+                    f"the vector index is not used when filtering on {filter_probe.column}",
                     f"{filter_probe.predicate}{selectivity} makes a sequential scan look "
                     "cheaper than the index. Results stay exact; latency grows with the "
                     "table.",
@@ -1220,9 +1222,7 @@ def _measure_filtered(
     ):
         # Measure the fix rather than recommending it on faith: the before-and-after is
         # the single most useful number this report produces for a multi-tenant table.
-        target = next(
-            (f for f in report.filters if f.predicate in worst.label), report.filters[0]
-        )
+        target = next((f for f in report.filters if f.predicate in worst.label), report.filters[0])
         predicate = f" AND {target.predicate}"
         truth, _, _ = probe.ground_truth(vectors, k, predicate=predicate)
         measured = probe.measure(
@@ -1316,16 +1316,12 @@ def _render_report(report: DoctorReport, *, width: int = 78) -> str:
                 f"  {row.value:<22}{row.recall:>8.2f}   {row.timing.p50_ms:>6.2f} ms   "
                 f"{row.timing.p95_ms:>6.2f} ms{tag}"
             )
-        out.append(
-            "  Latency is measured client-side, so it includes one round trip per query."
-        )
+        out.append("  Latency is measured client-side, so it includes one round trip per query.")
 
     if report.filtered:
         heading = "FILTERED RECALL"
         if report.recall is not None:
-            heading += (
-                f"  (unfiltered recall@{report.k} was {report.recall.recall:.2f})"
-            )
+            heading += f"  (unfiltered recall@{report.k} was {report.recall.recall:.2f})"
         out += ["", heading, thin]
         rows: list[tuple[str, RecallResult, str]] = [
             (
@@ -1523,13 +1519,10 @@ def _literal(value: str) -> str:
 
 def _inline_expression(config: Config) -> str:
     """The tsvector expression the query builder computes when there is no column."""
-    return (
-        f"to_tsvector('{config.language}', "
-        f"coalesce({quote_ident(config.text_column)}, ''))"
-    )
+    return f"to_tsvector('{config.language}', coalesce({quote_ident(config.text_column)}, ''))"
 
 
-def _explain_plan(payload: Any) -> Optional[dict]:
+def _explain_plan(payload: Any) -> Optional[dict[str, Any]]:
     if isinstance(payload, (str, bytes, bytearray)):
         payload = json.loads(payload)
     if isinstance(payload, list) and payload:
@@ -1541,7 +1534,7 @@ def _explain_plan(payload: Any) -> Optional[dict]:
     return None
 
 
-def _walk(node: dict) -> Iterator[dict]:
+def _walk(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
     yield node
     for child in node.get("Plans", []) or []:
         if isinstance(child, dict):

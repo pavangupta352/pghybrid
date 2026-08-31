@@ -81,7 +81,7 @@ def test_bare_boolean_words_are_dropped_as_noise(noise: str) -> None:
 
 
 def test_negated_boolean_word_is_still_a_negation() -> None:
-    """"-or" is an explicit instruction, not the noise word the tokeniser drops.
+    """ "-or" is an explicit instruction, not the noise word the tokeniser drops.
 
     The noise filter has to run only on bare terms, or a user excluding a literal word
     silently gets no exclusion at all.
@@ -214,9 +214,7 @@ def test_any_mode_does_not_rewrite_and_not_into_or_not(make_config: Any) -> None
     group, and each exclusion is attached with && rather than ||.
     """
     cfg = make_config(text_match="any")
-    sql, params = build_search_sql(
-        cfg, embedding=None, text="renewal notice -pricing", limit=5
-    )
+    sql, params = build_search_sql(cfg, embedding=None, text="renewal notice -pricing", limit=5)
     tsq = tsquery_expression(sql)
 
     assert " && !!" in tsq
@@ -233,9 +231,7 @@ def test_any_mode_does_not_rewrite_and_not_into_or_not(make_config: Any) -> None
 
 def test_any_mode_attaches_every_exclusion(make_config: Any) -> None:
     cfg = make_config(text_match="any")
-    sql, params = build_search_sql(
-        cfg, embedding=None, text="renewal -pricing -legacy", limit=5
-    )
+    sql, params = build_search_sql(cfg, embedding=None, text="renewal -pricing -legacy", limit=5)
     tsq = tsquery_expression(sql)
     assert tsq.count("&& !!") == 2
     assert params[:3] == ["renewal", "pricing", "legacy"]
@@ -245,9 +241,7 @@ def test_a_single_positive_with_an_exclusion_needs_no_group(make_config: Any) ->
     cfg = make_config(text_match="any")
     sql, _ = build_search_sql(cfg, embedding=None, text="renewal -pricing", limit=5)
     tsq = tsquery_expression(sql)
-    assert tsq == (
-        "websearch_to_tsquery('english', $1) && !!websearch_to_tsquery('english', $2)"
-    )
+    assert tsq == ("websearch_to_tsquery('english', $1) && !!websearch_to_tsquery('english', $2)")
 
 
 def test_a_query_of_only_exclusions_falls_back_to_the_parser(make_config: Any) -> None:
@@ -298,8 +292,6 @@ def test_quoted_phrase_becomes_one_parser_call_but_loses_its_adjacency(
     # TODO: re-quote a multi-word term before binding it (or bind it to
     # phraseto_tsquery) so an ANY-mode phrase keeps its adjacency.
     cfg = make_config(text_match="any")
-    sql, params = build_search_sql(
-        cfg, embedding=None, text='renewal "notice period"', limit=5
-    )
+    sql, params = build_search_sql(cfg, embedding=None, text='renewal "notice period"', limit=5)
     assert tsquery_expression(sql).count("websearch_to_tsquery('english', $") == 2
     assert params[:2] == ["renewal", "notice period"]

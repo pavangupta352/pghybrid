@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Config } from "../src/config.js";
+import { opsClass } from "../src/config.js";
 import { buildSearchSql, IdentifierError, Params, quoteIdent } from "../src/sql.js";
 
 /** The Python package's snapshot, which this port has to reproduce byte for byte. */
@@ -627,12 +628,14 @@ describe("vector type and metric", () => {
     ["ip", "<#>", "vector_ip_ops"],
     ["l1", "<+>", "vector_l1_ops"],
     ["manhattan", "<+>", "vector_l1_ops"],
-  ] as const)("maps the metric %s to its operator", (metric, operator) => {
+  ] as const)("maps the metric %s to its operator", (metric, operator, ops) => {
     // Using the wrong operator ranks by the wrong distance and skips the index. The
     // failure is silent — results come back, they are just subtly worse — so the
     // mapping is pinned here rather than trusted.
-    const { sql } = buildSearchSql(makeConfig({ metric }), { embedding: [0.5], limit: 5 });
+    const cfg = makeConfig({ metric });
+    const { sql } = buildSearchSql(cfg, { embedding: [0.5], limit: 5 });
     expect(sql).toContain(`"embedding" ${operator} $1::vector`);
+    expect(opsClass(cfg)).toBe(ops);
   });
 
   it("excludes NULL embeddings from the candidates", () => {
