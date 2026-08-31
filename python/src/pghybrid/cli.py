@@ -218,10 +218,27 @@ def command_init(args: argparse.Namespace) -> int:
                 "CONCURRENTLY cannot run inside a transaction. Run the printed "
                 "statements yourself."
             )
+        runnable = [s for s in required if s.is_executable]
+        manual = [s for s in required if not s.is_executable]
+
         print("applying...")
-        for statement in required:
+        for statement in runnable:
             connection.execute(statement.sql)
             print(f"  ok  {statement.sql.splitlines()[0][:70]}")
+
+        if manual:
+            # Required work that cannot be written as a statement, because the value is
+            # the caller's to supply. Sending it anyway is what this used to do: Postgres
+            # accepts a comment as an empty command, so it printed ok and changed nothing.
+            print("\nstill to do by hand — these could not be applied:")
+            for statement in manual:
+                print(f"  !!  {statement.sql.strip().lstrip('- ')}")
+                print(f"      {statement.reason}")
+            print(
+                "\nnot done: the table is not ready for hybrid search until the above is finished."
+            )
+            return 1
+
         print("\ndone.")
     elif required:
         print("Re-run with --apply to execute the required statements.")

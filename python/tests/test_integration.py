@@ -812,6 +812,44 @@ def test_introspect_works_with_a_mapping_row_factory(connection):
     assert info.row_count == len(DOCUMENTS)
 
 
+def test_a_statement_that_is_only_a_comment_is_not_executable(connection):
+    """The general guard, not just the one statement that was mis-marked.
+
+    Postgres accepts a comment as an empty command and reports success, so any statement
+    whose SQL is entirely comments would be applied, reported ok, and do nothing. Three
+    of the four such statements were already marked optional; the fourth was not, which
+    is exactly the kind of inconsistency a per-case marking invites.
+    """
+    from pghybrid.schema import Statement
+
+    assert not Statement(sql="-- do this by hand", reason="r").is_executable
+    assert not Statement(sql="--one\n--two\n", reason="r").is_executable
+    assert not Statement(sql="  \n  -- indented\n", reason="r").is_executable
+    assert Statement(sql="ANALYZE t;", reason="r").is_executable
+    assert Statement(sql="-- why\nANALYZE t;", reason="r").is_executable
+
+
+def test_a_bare_vector_column_yields_required_work_nothing_can_run(connection):
+    """It is required, and it cannot be a statement: only the caller knows the dimension."""
+    from pghybrid.schema import build_migration, introspect, suggest_config
+
+    connection.execute("DROP TABLE IF EXISTS bare_vector_probe")
+    connection.execute(
+        "CREATE TABLE bare_vector_probe (id bigserial PRIMARY KEY, content text NOT NULL,"
+        " embedding vector)"
+    )
+    try:
+        info = introspect(dbapi_executor(connection), "bare_vector_probe")
+        statements = build_migration(suggest_config(info), info)
+        required = [s for s in statements if not s.optional]
+        assert required, "a table that cannot be indexed still has work to report"
+        manual = [s for s in required if not s.is_executable]
+        assert len(manual) == 1
+        assert "<dimensions>" in manual[0].sql, manual[0].sql
+    finally:
+        connection.execute("DROP TABLE IF EXISTS bare_vector_probe")
+
+
 def test_migration_is_idempotent(connection):
     executor = dbapi_executor(connection)
     connection.execute("DROP TABLE IF EXISTS migration_target CASCADE")

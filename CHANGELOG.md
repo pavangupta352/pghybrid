@@ -72,6 +72,12 @@ First release.
   5 recommends, and then fails on line 1. `scripts/check_docs_code.py` executes the
   Python blocks against tables the guides describe and typechecks the TypeScript ones
   against the packed tarball.
+- `init --apply` no longer reports success for work it did not do. A bare `vector` column
+  has to be given the dimension the model produces, which nothing here can know, so the
+  migration carries that as a comment with a placeholder — and `--apply` sent it to the
+  server, which accepts a comment as an empty command, printed `ok` for it and ended with
+  "done." at exit code 0. The column was untouched. Statements that are entirely comments
+  are now listed as work still to do by hand, and the command exits 1 while any remain.
 - The Supabase guide's `hybrid_search` function is executed in CI. It is a hand-written
   copy of the query this library generates, which makes it the documentation most likely
   to drift — the generated SQL is checked from every direction and nothing at all ran

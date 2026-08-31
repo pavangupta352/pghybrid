@@ -207,6 +207,54 @@ def test_init_prints_statements_and_does_not_apply_them(capsys, connection_for_c
 
 
 @with_database
+def test_apply_does_not_claim_to_have_run_a_comment(capsys, connection_for_cli):
+    """Required work that cannot be written as a statement must not be reported as done.
+
+    A bare `vector` column has to be given the dimension the model produces, and nothing
+    here knows what that is, so the migration carries it as a comment with a placeholder.
+    --apply sent it to the server, which accepts a comment as an empty command, printed
+    "ok" for it and finished with "done." The column was untouched and the exit code was
+    0, so nothing a caller could check would have told them the table was not ready.
+    """
+    connection_for_cli.execute("DROP TABLE IF EXISTS cli_bare_vector")
+    connection_for_cli.execute(
+        "CREATE TABLE cli_bare_vector (id bigserial PRIMARY KEY, content text NOT NULL,"
+        " embedding vector)"
+    )
+    connection_for_cli.execute(
+        "INSERT INTO cli_bare_vector (content, embedding) VALUES ('renewal notice', '[1,0]')"
+    )
+    try:
+        assert run("init", "--table", "cli_bare_vector", "--apply") == 1
+        out = capsys.readouterr().out
+        assert "still to do by hand" in out
+        assert "not done" in out
+        # The work it *could* do is still done, so re-running finishes the job.
+        assert "ok  ALTER TABLE" in out and "ADD COLUMN" in out
+
+        # And the comment was not reported as applied.
+        applied = [line for line in out.splitlines() if line.strip().startswith("ok")]
+        assert not any("--" in line for line in applied), applied
+
+        # Nothing changed the column, which is the point.
+        kind = connection_for_cli.execute(
+            "SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute "
+            "WHERE attrelid = 'cli_bare_vector'::regclass AND attname = 'embedding'"
+        ).fetchone()["t"]
+        assert kind == "vector", kind
+
+        # Once the dimension is supplied the same command succeeds.
+        connection_for_cli.execute(
+            "ALTER TABLE cli_bare_vector ALTER COLUMN embedding TYPE vector(2)"
+        )
+        capsys.readouterr()
+        assert run("init", "--table", "cli_bare_vector", "--apply") == 0
+        assert "still to do by hand" not in capsys.readouterr().out
+    finally:
+        connection_for_cli.execute("DROP TABLE IF EXISTS cli_bare_vector")
+
+
+@with_database
 def test_doctor_is_read_only(capsys, connection_for_cli):
     before = connection_for_cli.execute(
         "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)

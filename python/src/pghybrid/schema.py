@@ -394,6 +394,24 @@ class Statement:
     concurrent_sql: Optional[str] = None
     notes: list[str] = field(default_factory=list)
 
+    @property
+    def is_executable(self) -> bool:
+        """Whether ``sql`` is something a server can run.
+
+        Some required work cannot be written as a statement, because the value is the
+        caller's to supply -- a bare ``vector`` column has to be given the dimension the
+        model produces, and nothing here knows what that is. Those carry the statement as
+        a comment, with a placeholder where the number goes.
+
+        ``--apply`` sent one of those to the server, which accepted it as an empty
+        command, and then printed ``ok`` for it. The column was untouched and the run
+        ended with "done." A caller could not have known the work had not happened, so
+        the loop asks this before claiming anything.
+        """
+        return any(
+            line.strip() and not line.strip().startswith("--") for line in self.sql.splitlines()
+        )
+
     def to_text(self, *, concurrent: bool = False) -> str:
         """The statement as it would appear in a migration file, comments included."""
         if self.kind == "note":
