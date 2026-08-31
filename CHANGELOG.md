@@ -118,6 +118,14 @@ First release.
   3 of 100 on a table that was 60 of 200.
 
 ### Security
+- `highlight` escapes the document before `ts_headline` runs. The default delimiters are
+  `<mark>`, so the result is meant to be rendered as HTML, which makes the surrounding
+  document text active markup. Postgres does not escape it, and its parser drops only the
+  tag shapes it recognises: `<script>alert(1)</script>` disappears, which makes the whole
+  thing look safe, while `<img src=x onerror=alert(1)>` and `<svg/onload=alert(1)>` reach
+  the caller intact. Anyone rendering `result.highlight` had an injection path through
+  their own stored documents. `Config.escape_highlight` defaults to true and can be turned
+  off for non-HTML delimiters.
 - `language`, `query_parser` and `rank_function` are validated. They are interpolated
   rather than bound, and were unchecked, so a `Config` built from user input was an
   injection surface. Found and fixed before release.

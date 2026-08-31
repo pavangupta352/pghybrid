@@ -762,6 +762,65 @@ def test_doctor_stays_read_only_while_measuring_drift(connection, drift_table):
     ), "the drift check repaired the column instead of reporting it"
 
 
+def test_highlight_cannot_smuggle_markup_out_of_the_document(connection):
+    """The delimiters are HTML, so the caller is meant to render the result.
+
+    That makes the document text around the marks active markup, and Postgres does not
+    escape it. Its parser drops tags it recognises, which is the trap: <script>alert(1)
+    </script> disappears and the whole thing looks safe, while <img src=x onerror=...>
+    and <svg/onload=...> come through whole. Relying on that is relying on which shapes
+    one particular parser happens to recognise.
+    """
+    connection.execute("DROP TABLE IF EXISTS highlight_probe")
+    connection.execute(
+        "CREATE TABLE highlight_probe ("
+        "  id bigserial PRIMARY KEY, content text NOT NULL, embedding vector(8),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        payloads = [
+            "renewal notice <img src=x onerror=alert(1)> end",
+            "renewal notice <svg/onload=alert(1)> end",
+            "renewal notice <script>alert(1)</script> end",
+            "renewal notice where x < 5 and y > 3 end",
+            "renewal notice with an &amp; already in it end",
+        ]
+        for text in payloads:
+            connection.execute(
+                "INSERT INTO highlight_probe (content, embedding) VALUES (%s, %s::vector)",
+                (text, "[" + ",".join(["0.1"] * 8) + "]"),
+            )
+
+        def highlights(**overrides):
+            cfg = Config(
+                table="highlight_probe",
+                text_column="content",
+                vector_column="embedding",
+                tsvector_column="fts",
+                paramstyle="pyformat",
+                **overrides,
+            )
+            search = HybridSearch(cfg, execute=lambda sql, p: connection.execute(sql, p).fetchall())
+            rows = search.search("renewal notice", embedding=[0.1] * 8, limit=10, highlight=True)
+            return [r.highlight or "" for r in rows]
+
+        for highlight in highlights():
+            # Only the delimiters may be raw markup. Everything else is escaped.
+            body = highlight.replace("<mark>", "").replace("</mark>", "")
+            assert "<" not in body and ">" not in body, body
+            assert "<mark>" in highlight, "escaping must not break the highlighting"
+
+        # And the opt-out still exists for non-HTML delimiters, where escaping is wrong.
+        raw = highlights(escape_highlight=False)
+        assert any("<img" in h or "<svg" in h for h in raw), (
+            "with escaping off the document should come through unchanged, which is the "
+            "whole reason the default is on"
+        )
+    finally:
+        connection.execute("DROP TABLE IF EXISTS highlight_probe")
+
+
 def test_highlight_marks_the_matched_terms(search):
     rows = search.search(DEMO_QUERY, embedding=query_vector(), limit=3, highlight=True)
     assert any("<mark>" in (r.highlight or "") for r in rows)

@@ -459,10 +459,19 @@ def build_search_sql(
 
     if highlight and have_text:
         headline_opts = params.add(cfg.headline_options)
+        document = f"t.{quote_ident(cfg.text_column)}"
+        if cfg.escape_highlight:
+            # The delimiters are HTML, so the result is meant to be rendered, which makes
+            # the document text around them active markup. Postgres does not escape it:
+            # its parser drops tags it recognises, so <script> vanishes and it all looks
+            # safe, while <img src=x onerror=...> and <svg/onload=...> come through whole.
+            # The ampersand has to go first or the entities escape each other.
+            for character, entity in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")):
+                document = f"replace({document}, {params.add(character)}, {params.add(entity)})"
         # ts_headline is expensive and is deliberately evaluated only for the rows
         # that survive ranking, never inside the candidate CTEs.
         out_columns.append(
-            f"ts_headline('{cfg.language}', t.{quote_ident(cfg.text_column)}, "
+            f"ts_headline('{cfg.language}', {document}, "
             f"(SELECT tsq FROM text_query), {headline_opts}) AS highlight"
         )
 

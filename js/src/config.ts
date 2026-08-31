@@ -189,6 +189,21 @@ export interface Config {
    */
   textMatch?: TextMatch;
   headlineOptions?: string;
+  /**
+   * Escape `&`, `<` and `>` in the document before `ts_headline` runs. Defaults to true.
+   *
+   * The default delimiters are HTML, so the whole point of `highlight` is that you render
+   * it. That makes the surrounding document text active markup unless something escapes
+   * it, and Postgres does not: its parser drops tags it recognises, which is why
+   * `<script>alert(1)</script>` disappears and looks safe, but `<img src=x onerror=alert(1)>`
+   * and `<svg/onload=alert(1)>` come through intact. Relying on that is relying on which
+   * shapes one particular parser happens to recognise.
+   *
+   * Escaping first is the fix and it costs nothing: only the three characters change, so
+   * every word still matches and the highlighting is identical. Turn it off if you have set
+   * `headlineOptions` to delimiters that are not HTML, such as `**` for Markdown.
+   */
+  escapeHighlight?: boolean;
 }
 
 /** A {@link Config} with every default filled in and every value checked. */
@@ -214,6 +229,7 @@ export interface ResolvedConfig {
   readonly paramStyle: ParamStyle;
   readonly textMatch: TextMatch;
   readonly headlineOptions: string;
+  readonly escapeHighlight: boolean;
 }
 
 export const DEFAULT_HEADLINE_OPTIONS =
@@ -370,6 +386,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     paramStyle,
     textMatch,
     headlineOptions: config.headlineOptions ?? DEFAULT_HEADLINE_OPTIONS,
+    escapeHighlight: config.escapeHighlight ?? true,
   };
 }
 

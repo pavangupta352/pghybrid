@@ -1000,6 +1000,14 @@ def test_canonical_parameters_match_the_snapshot() -> None:
         60.0,
         1.0,
         30.0,
+        # The document is escaped before ts_headline sees it, because the delimiters are
+        # HTML and Postgres does not escape the text around them.
+        "&",
+        "&amp;",
+        "<",
+        "&lt;",
+        ">",
+        "&gt;",
         "StartSel=<mark>, StopSel=</mark>, MaxFragments=2, MinWords=8, MaxWords=30",
         13,
         20,

@@ -53,8 +53,8 @@ SELECT f.id,
        t."content",
        t."title",
        t."url",
-       ts_headline('english', t."content", (SELECT tsq FROM text_query), $15) AS highlight
+       ts_headline('english', replace(replace(replace(t."content", $15, $16), $17, $18), $19, $20), (SELECT tsq FROM text_query), $21) AS highlight
 FROM fused f
 JOIN "public"."chunks" t ON t."chunk_id" = f.id
 ORDER BY score DESC, f.id
-LIMIT $16 OFFSET $17
+LIMIT $22 OFFSET $23

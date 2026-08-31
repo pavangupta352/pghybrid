@@ -35,6 +35,17 @@ Known and deliberate, so not vulnerabilities on their own:
 
 ## Previously fixed
 
+- **`highlight` returned unescaped document text inside HTML.** The default delimiters are
+  `StartSel=<mark>`, so the whole point of the field is that you render it, which makes the
+  document text around the marks active markup. Postgres does not escape it, and its parser
+  removes only the tag shapes it recognises. That is the trap: `<script>alert(1)</script>`
+  is stripped and the output looks safe, while `<img src=x onerror=alert(1)>` and
+  `<svg/onload=alert(1)>` arrive intact. Any application rendering `result.highlight` had
+  an injection path through its own stored documents. `&`, `<` and `>` are now escaped
+  before `ts_headline` runs, which changes nothing about the matching because only those
+  three characters differ. `Config.escape_highlight` turns it off for delimiters that are
+  not HTML.
+
 - **Interpolated query fragments were unvalidated.** `language`, `query_parser` and
   `rank_function` are parts of the query rather than values and so cannot be bound. They
   were typed but never checked at run time, which meant a `Config` built from user input, 

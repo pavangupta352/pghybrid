@@ -160,6 +160,13 @@ const FIXTURES = [
     { embedding: [0.1, 0.2], text: "-pricing -legacy", limit: 5 },
   ),
   fixture("text-noise-only", {}, { embedding: [0.1, 0.2], text: "and or", limit: 5 }),
+  // Highlight escaping, on by default and off for non-HTML delimiters.
+  fixture("highlight-escaped", {}, { embedding: [0.1], text: "renewal", limit: 5, highlight: true }),
+  fixture(
+    "highlight-unescaped",
+    { escapeHighlight: false, headlineOptions: "StartSel=**, StopSel=**" },
+    { embedding: [0.1], text: "renewal", limit: 5, highlight: true },
+  ),
   fixture("text-unicode", {}, { text: 'café 日本語 "kündigung frist" -naïve 🙂', limit: 5 }),
 
   // Filters, inside both candidate CTEs.
@@ -292,6 +299,7 @@ const CONFIG_KEYS = {
   paramStyle: "paramstyle",
   textMatch: "text_match",
   headlineOptions: "headline_options",
+  escapeHighlight: "escape_highlight",
 };
 
 const CALL_KEYS = {
@@ -611,7 +619,14 @@ async function main() {
   });
   if (built.sql + "\n" !== golden) {
     failures.push(
-      ["golden snapshot:", "  TypeScript does not reproduce the committed snapshot:", firstDifference(golden, built.sql + "\n")].join("\n"),
+      [
+        "golden snapshot:",
+        "  TypeScript does not reproduce the committed snapshot.",
+        "  (Below, `py` is the committed snapshot and `ts` is what the builder produced.",
+        "   A difference here usually means the snapshot is stale, not that the two",
+        "   packages disagree: regenerate with PGHYBRID_UPDATE_GOLDEN=1.)",
+        firstDifference(golden, built.sql + "\n"),
+      ].join("\n"),
     );
     process.stdout.write("  FAIL golden snapshot\n");
   } else {
