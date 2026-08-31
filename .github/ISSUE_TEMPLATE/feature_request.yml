@@ -1,0 +1,28 @@
+name: Feature request
+description: Something this should do and does not
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a query layer, deliberately. It does not embed text, chunk documents,
+        rerank results, or support vector stores other than Postgres — staying small is
+        what keeps it auditable and installable anywhere. Proposals in those directions
+        are likely to be declined, and that is not a judgement on the idea.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you hit
+      description: What were you trying to do when you needed this?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you are doing instead today

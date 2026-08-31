@@ -359,6 +359,29 @@ describe("fusion", () => {
     expect(params.filter((value) => value === 60)).toHaveLength(1);
   });
 
+  it("casts every arithmetic parameter so the fusion cannot become integer division", () => {
+    // The most expensive kind of bug this file can catch, because nothing errors.
+    // v.rank is a bigint. A driver that sends its parameters untyped — node-postgres
+    // does, psycopg does not — leaves Postgres to infer the weight and k from their
+    // neighbour, so they become bigints too and `1 / (60 + 2)` truncates to 0. Every
+    // score comes back as exactly zero and the results are ordered by the id
+    // tiebreaker, which looks like a ranking problem rather than a typing one.
+    for (const fusion of ["rrf", "weighted"] as const) {
+      const { sql } = buildSearchSql(config, {
+        embedding: [0.1],
+        text: "renewal",
+        limit: 5,
+        fusion,
+      });
+      const scored = cte(sql, "scored");
+      const placeholders = scored.match(/\$\d+(?:::float8)?/g) ?? [];
+      expect(placeholders.length).toBeGreaterThan(0);
+      for (const placeholder of placeholders) {
+        expect(placeholder).toMatch(/::float8$/);
+      }
+    }
+  });
+
   it("scores weighted fusion on the raw signals", () => {
     // Kept because people ask for it, and asserted so its trap stays visible.
     const { sql } = buildSearchSql(config, {

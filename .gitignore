@@ -27,3 +27,7 @@ js/dist/
 # Local
 .env
 .env.local
+
+# Scratch files
+js/dbg*.mjs
+js/e2e-check.mjs

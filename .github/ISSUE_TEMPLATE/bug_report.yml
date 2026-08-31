@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work the way the documentation says it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful report includes the generated SQL. `search.build_query(...)`
+        returns it, and `pghybrid explain` is worth a thousand words of description.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Your Config
+      description: Redact anything sensitive; the column names and options are what matter.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: sql
+    attributes:
+      label: The generated SQL
+      description: From `build_query()` / `buildQuery()`, or `pghybrid sql`.
+      render: sql
+  - type: textarea
+    id: explain
+    attributes:
+      label: pghybrid explain output
+      description: Optional, but it usually contains the answer.
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: pghybrid 0.1.0, Postgres 17.2, pgvector 0.8.0, psycopg 3.2
+    validations:
+      required: true

@@ -87,34 +87,10 @@ function token(index: number): string {
   return `\x01p${index}\x01`;
 }
 
-/**
- * Postgres' OID for double precision, and the "work it out yourself" OID.
- *
- * Only two are needed: a parameter either has to be a float or can safely be inferred
- * from the expression it sits in. See {@link BuiltQuery.paramTypes}.
- */
-const FLOAT8 = 701;
-const INFER = 0;
-
-/** One rendered statement, the values to bind to it, and the types they must have. */
+/** One rendered statement and the values to bind to it, in order. */
 export interface BuiltQuery {
   sql: string;
   params: unknown[];
-  /**
-   * A Postgres type OID per parameter, where 0 means "let the server infer it".
-   *
-   * This exists because of one specific way the statement returns wrong answers
-   * silently. The RRF contribution is `$11 / ($12 + v.rank)`, and `v.rank` is a
-   * bigint. A driver that sends its parameters untyped — node-postgres does, psycopg
-   * does not — leaves Postgres to infer `$11` and `$12` from their neighbour, so it
-   * makes them bigints too, and `1 / (60 + 2)` is integer division: every score comes
-   * back as exactly 0 and the results are ordered by id. Nothing errors.
-   *
-   * Passing these OIDs to the driver is what prevents that. Everything not marked here
-   * sits next to a cast, a typed column or a typed literal, so the server's inference
-   * is already right. See `nodePostgresQuery` in this package for the one-liner.
-   */
-  paramTypes: number[];
 }
 
 /**
@@ -132,15 +108,9 @@ export interface BuiltQuery {
  */
 export class Params {
   private readonly slots: unknown[] = [];
-  private readonly types: number[] = [];
 
-  /**
-   * Reserve a slot. `type` names a Postgres OID for the values whose type the server
-   * cannot safely infer; see {@link BuiltQuery.paramTypes}.
-   */
-  add(value: unknown, type: number = INFER): string {
+  add(value: unknown): string {
     this.slots.push(value);
-    this.types.push(type);
     return token(this.slots.length - 1);
   }
 
@@ -153,34 +123,29 @@ export class Params {
     if (paramStyle === "numeric") {
       const numbers = new Map<number, number>();
       const values: unknown[] = [];
-      const paramTypes: number[] = [];
       const rendered = sql.replace(TOKEN_RE, (_match, slot: string) => {
         const index = Number(slot);
         let number = numbers.get(index);
         if (number === undefined) {
           values.push(this.slots[index]);
-          paramTypes.push(this.types[index] ?? INFER);
           number = values.length;
           numbers.set(index, number);
         }
         return `$${number}`;
       });
-      return { sql: rendered, params: values, paramTypes };
+      return { sql: rendered, params: values };
     }
 
     if (paramStyle === "pyformat") {
       const values: unknown[] = [];
-      const paramTypes: number[] = [];
       // A literal percent would otherwise be read as the start of a placeholder by
       // drivers that use pyformat.
       const escaped = sql.replace(/%/g, "%%");
       const rendered = escaped.replace(TOKEN_RE, (_match, slot: string) => {
-        const index = Number(slot);
-        values.push(this.slots[index]);
-        paramTypes.push(this.types[index] ?? INFER);
+        values.push(this.slots[Number(slot)]);
         return "%s";
       });
-      return { sql: rendered, params: values, paramTypes };
+      return { sql: rendered, params: values };
     }
 
     throw new Error(
@@ -490,11 +455,14 @@ function fusionClause(
   haveText: boolean,
   fusion: FusionMethod,
 ): [string, string] {
-  // Every arithmetic parameter is cast explicitly rather than left to the server's
-  // type inference. JavaScript has one number type, so a driver sends 1 where Python
-  // sends 1.0, Postgres infers integer, and `1 / (60 + rank)` becomes integer division:
-  // every contribution truncates to zero and the ranking collapses to the tiebreaker.
-  // The failure is invisible — the query succeeds and returns rows, all scored 0.
+  // Every arithmetic parameter is cast rather than left to the server's type
+  // inference. v.rank is a bigint, so a driver that sends its parameters untyped —
+  // node-postgres does, psycopg does not — leaves Postgres to infer the weight and k
+  // from their neighbour and make them bigints too, at which point `1 / (60 + rank)`
+  // is integer division: every contribution truncates to zero and the ranking
+  // collapses to the id tiebreak. Nothing errors. The cast is in the statement rather
+  // than in the binding because it is then correct for every driver, including the
+  // ones that cannot declare a parameter's type at all.
   const vectorWeight = `${params.add(cfg.weights.vector)}::float8`;
   const textWeight = `${params.add(cfg.weights.text)}::float8`;
 
