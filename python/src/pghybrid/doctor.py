@@ -1289,14 +1289,35 @@ def _check_recall(report: DoctorReport) -> None:
     result = report.recall
     if result is None:
         return
+    config = report.config
     index = report.info.vector_index_for(report.config.vector_column)
-    if index is None:
+
+    # An index Postgres will not use is, for the purposes of this measurement, no index.
+    # An invalid one (a CREATE INDEX CONCURRENTLY that failed) is skipped by the planner,
+    # and one built with the wrong operator class can never answer this metric's operator.
+    # Both leave every search exact, so recall is 1.00 for a reason that has nothing to do
+    # with the index working. Saying "the index returns the true nearest neighbours" there
+    # is not just unhelpful, it is untrue, and it invites the reader to conclude the
+    # broken index is harmless. It is not: it costs space and write throughput now, and
+    # recall can fall the moment it is repaired.
+    unusable = None
+    if index is not None and not index.valid:
+        unusable = f"{index.name} is invalid, so the planner skips it"
+    elif index is not None and index.metric is not None and index.metric is not config.metric:
+        unusable = (
+            f"{index.name} is built for {index.metric.name} and this config searches with "
+            f"{config.metric.name}, so the planner cannot use it"
+        )
+
+    if index is None or unusable is not None:
+        because = unusable or "there is no index"
         report.findings.append(
             Finding(
                 "info",
-                f"recall@{result.k} is 1.00 because there is no index",
-                "Every search is exact today. The number to watch after building an "
-                "index is this same measurement, which is why it is worth recording now.",
+                f"recall@{result.k} is 1.00 because {because}",
+                "Every search is exact today, which is why nothing is being missed. The "
+                "number to watch is this same measurement once a usable index is in "
+                "place, which is why it is worth recording now.",
             )
         )
         return

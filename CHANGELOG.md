@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `doctor` no longer credits an index the planner cannot use. Recall was reported as
+  "the index returns the true nearest neighbours" whenever any index existed, including
+  one left invalid by a failed `CREATE INDEX CONCURRENTLY` and one built for a different
+  operator class than the config searches with. Both are skipped by the planner, so every
+  search is exact and recall is 1.00 for a reason that has nothing to do with the index
+  working. The finding now names which of the two it is, and stops inviting the reader to
+  treat a broken index as harmless when it is costing space and write throughput.
+
 ## [0.1.2] - 2026-08-31
 
 ### Fixed

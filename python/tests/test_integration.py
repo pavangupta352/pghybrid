@@ -522,6 +522,74 @@ def test_a_repeated_id_multiplies_rows_through_the_fusion(connection, chunked_ta
     )
 
 
+def test_recall_does_not_credit_an_index_the_planner_cannot_use(connection):
+    """Perfect recall means nothing when the reason is that no index is running.
+
+    doctor branched only on whether an index existed. An invalid one, left by a failed
+    CREATE INDEX CONCURRENTLY, and one built for the wrong operator class are both
+    skipped by the planner, so every search is exact and recall is 1.00 for a reason
+    that has nothing to do with the index working. Reporting "the index returns the true
+    nearest neighbours" there is untrue, and it invites the reader to treat the broken
+    index as harmless. It costs space and write throughput now, and recall can fall the
+    moment it is repaired.
+    """
+    connection.execute("DROP TABLE IF EXISTS unusable_index_probe")
+    connection.execute(
+        "CREATE TABLE unusable_index_probe ("
+        "  id bigserial PRIMARY KEY, content text NOT NULL, embedding vector(8),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        for i in range(50):
+            connection.execute(
+                "INSERT INTO unusable_index_probe (content, embedding) VALUES (%s, %s::vector)",
+                (f"renewal notice clause {i}", "[" + ",".join(["0.1"] * 8) + "]"),
+            )
+
+        def recall_finding(metric="cosine"):
+            report = doctor(
+                dbapi_executor(connection),
+                Config(
+                    table="unusable_index_probe",
+                    text_column="content",
+                    vector_column="embedding",
+                    tsvector_column="fts",
+                    metric=metric,
+                    paramstyle="pyformat",
+                ),
+                sample=10,
+                k=5,
+            )
+            return next(f for f in report.findings if "recall@5" in f.title)
+
+        # An index the planner skips because a concurrent build failed.
+        connection.execute(
+            "CREATE INDEX unusable_hnsw ON unusable_index_probe "
+            "USING hnsw (embedding vector_cosine_ops)"
+        )
+        connection.execute(
+            "UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'unusable_hnsw'::regclass"
+        )
+        invalid = recall_finding()
+        assert "is invalid" in invalid.title and "planner skips it" in invalid.title
+        assert "returns the true nearest neighbours" not in invalid.detail
+
+        # An index built for a metric this config does not search with.
+        connection.execute("DROP INDEX unusable_hnsw")
+        connection.execute(
+            "CREATE INDEX unusable_l2 ON unusable_index_probe USING hnsw (embedding vector_l2_ops)"
+        )
+        mismatched = recall_finding(metric="cosine")
+        assert "built for l2" in mismatched.title and "cannot use it" in mismatched.title
+
+        # And a usable index is still credited normally.
+        working = recall_finding(metric="l2")
+        assert "recall@5 = 1.00" in working.title and working.level == "ok"
+    finally:
+        connection.execute("DROP TABLE IF EXISTS unusable_index_probe")
+
+
 def test_doctor_reports_an_id_column_that_is_not_unique(connection, chunked_table):
     report = doctor(
         dbapi_executor(connection), _config_for(chunked_table, "doc_id"), sample=20, k=5
