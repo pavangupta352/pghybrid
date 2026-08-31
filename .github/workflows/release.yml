@@ -142,6 +142,31 @@ jobs:
         with:
           name: dist
           path: dist/
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+      # --generate-notes would list every commit since the last tag, which on a first
+      # release is fifty subject lines and no shape. The changelog section for this
+      # version is written for a reader, so use it and fall back only if it is missing.
+      - name: Take the release notes from the changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/        { exit }
+            found                      { print }
+          ' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            echo "notes<<EOF" >> "$GITHUB_ENV"
+            cat notes.md >> "$GITHUB_ENV"
+            echo "EOF" >> "$GITHUB_ENV"
+            echo "using the changelog section for $VERSION"
+          else
+            echo "::warning::no changelog section for $VERSION; generating notes"
+          fi
+      - name: Publish the GitHub release
+        run: |
+          if [ -s notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
