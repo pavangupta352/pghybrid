@@ -11,7 +11,7 @@ only says "invalid" costs the reader a trip to the source.
 
 from __future__ import annotations
 
-from typing import Any
+import dataclasses
 
 import pytest
 
@@ -53,7 +53,7 @@ def test_metric_aliases_resolve_to_the_shared_singleton(alias: str, expected: Me
     assert Config(metric=alias, **REQUIRED).metric is expected
 
 
-def test_every_registered_alias_resolves(sorted_aliases: Any = None) -> None:
+def test_every_registered_alias_resolves() -> None:
     """Guards against an alias being added to METRICS but not to the coercion path."""
     for alias in METRICS:
         assert isinstance(Config(metric=alias, **REQUIRED).metric, Metric)
@@ -74,7 +74,7 @@ def test_unknown_metric_names_the_valid_options() -> None:
 
 def test_metrics_are_frozen_value_objects() -> None:
     """Mutating a module-level metric would silently reconfigure every other Config."""
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         COSINE.operator = "<->"  # type: ignore[misc]
 
 
@@ -250,8 +250,9 @@ def test_dict_recency_is_still_validated() -> None:
 
 
 def test_recency_is_a_frozen_value_object() -> None:
-    with pytest.raises(Exception):
-        Recency(column="published_at", half_life_days=30).half_life_days = 60  # type: ignore[misc]
+    recency = Recency(column="published_at", half_life_days=30)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        recency.half_life_days = 60  # type: ignore[misc]
 
 
 # --------------------------------------------------------------------------------------
@@ -319,7 +320,12 @@ def test_language_and_parser_names_are_not_validated() -> None:
     """
     # TODO: validate language, query_parser and rank_function in __post_init__ alongside
     # the other enumerated fields. See the matching test in test_sql.py.
-    cfg = Config(language="klingon", query_parser="drop_tsquery", rank_function="ts_bm25", **REQUIRED)
+    cfg = Config(
+        language="klingon",
+        query_parser="drop_tsquery",
+        rank_function="ts_bm25",
+        **REQUIRED,
+    )
     assert cfg.language == "klingon"
     assert cfg.query_parser == "drop_tsquery"
     assert cfg.rank_function == "ts_bm25"
