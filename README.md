@@ -343,15 +343,15 @@ $ python scripts/benchmark.py
 
   PostgreSQL 17.11 (Debian 17.11-1.pgdg12+2) on aarch64-unknown-linux-gnu, pgvector 0.8.6
   100,000 rows x 384 dimensions, top 10
-  400 interleaved runs after 40 warmups, 5 rotating queries
+  400 interleaved runs in shuffled order after 40 warmups, 5 rotating queries
 
   mode                   p50       p95
   ------------------------------------
-  vector only          1.99ms     2.70ms
-  keyword only         7.55ms    12.80ms
-  hybrid (both)        5.31ms     7.95ms
+  vector only          2.12ms     2.87ms
+  keyword only         7.78ms    12.93ms
+  hybrid (both)        5.72ms     8.68ms
 
-  Adding the keyword signal costs +3.32ms at p50 (+167% over vector-only).
+  Adding the keyword signal costs +3.60ms at p50 (+170% over vector-only).
 ```
 
 Reproduce it with [`scripts/benchmark.py`](scripts/benchmark.py) — that block is its
@@ -367,10 +367,13 @@ Three things worth knowing before you read those numbers:
   That number described the fixture, not Postgres.
 - **Embeddings are random**, which is the worst case for an approximate index. Real
   embeddings cluster and search faster, so treat the vector figure as an upper bound.
-- **Keyword-only is slower than hybrid, which is not a typo.** With one signal the planner
-  sorts the whole matched set (a 203kB quicksort over ~3,400 rows); with two, the full
-  outer join lets it hash the 50 vector candidates instead (11kB). Hybrid does strictly
-  more work and still comes out ahead, because it gets a better plan.
+- **Keyword-only measures slower than hybrid, and I cannot fully explain it.** It is
+  reproducible — the modes are interleaved in shuffled order, and it survives giving each
+  mode independent queries so neither warms the other's pages. But a warmed
+  `EXPLAIN ANALYZE` of the two shows the same bitmap scan over the same 2,952 buffers and
+  near-identical execution times, so the mechanism is not the one I first wrote here (a
+  sort-versus-hash difference that turned out to be an artifact of an older query shape).
+  Reported rather than explained away.
 
 The comparison that matters for a decision is the first and third rows: adding keyword
 search to an existing vector search costs a few milliseconds at this size.

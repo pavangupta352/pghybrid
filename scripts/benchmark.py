@@ -124,17 +124,26 @@ def time_modes(
     last inherits a warm cache from the ones before it: measured that way, hybrid came
     out *faster* than keyword-only, which is impossible — hybrid runs the same keyword
     CTE plus a vector one. The ordering was the finding, not the query.
+
+    Interleaving in a *fixed* order is not enough either, for the same reason one step
+    down: whichever mode always runs second inherits the pages the first just touched.
+    The order is shuffled per iteration so no mode has a systematic neighbour.
     """
+    order = list(modes)
     samples: dict[str, list[float]] = {label: [] for label in modes}
 
+    shuffler = random.Random(1234)
+
     for index in range(warmup):
-        for call in modes.values():
-            call(index)
+        shuffler.shuffle(order)
+        for label in order:
+            modes[label](index)
 
     for index in range(runs):
-        for label, call in modes.items():
+        shuffler.shuffle(order)
+        for label in order:
             started = time.perf_counter()
-            call(index)
+            modes[label](index)
             samples[label].append((time.perf_counter() - started) * 1000)
 
     results: dict[str, tuple[float, float]] = {}
@@ -204,7 +213,7 @@ def main() -> int:
         print(f"  {server}, pgvector {pgvector}")
         print(f"  {count:,} rows x {args.dimensions} dimensions, top {args.limit}")
         print(
-            f"  {args.runs} interleaved runs after {args.warmup} warmups, "
+            f"  {args.runs} interleaved runs in shuffled order after {args.warmup} warmups, "
             f"{len(queries)} rotating queries"
         )
         print()
