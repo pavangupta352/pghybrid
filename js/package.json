@@ -59,7 +59,8 @@
     "build": "tsup",
     "test": "vitest run",
     "lint": "eslint src test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
