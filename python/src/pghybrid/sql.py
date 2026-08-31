@@ -380,11 +380,17 @@ def _fusion_clause(
     INNER JOIN here would quietly reduce hybrid search to the intersection of the two
     result sets, which is a different and much worse product.
     """
-    vector_weight = params.add(float(cfg.weights.vector))
-    text_weight = params.add(float(cfg.weights.text))
+    # Every arithmetic parameter is cast explicitly rather than left to the server's
+    # type inference. A driver that sends the weight and k as integers — which any
+    # JavaScript driver must, because 1.0 and 1 are the same value there — makes
+    # `1 / (60 + rank)` integer division, so every contribution truncates to zero and
+    # the ranking silently collapses to whatever the tiebreaker is. The failure is
+    # invisible: the query succeeds and returns rows, all scored 0.
+    vector_weight = params.add(float(cfg.weights.vector)) + "::float8"
+    text_weight = params.add(float(cfg.weights.text)) + "::float8"
 
     if fusion == "rrf":
-        k = params.add(float(cfg.k))
+        k = params.add(float(cfg.k)) + "::float8"
         vector_contribution = f"{vector_weight} / ({k} + v.rank)"
         text_contribution = f"{text_weight} / ({k} + t.rank)"
     elif fusion == "weighted":

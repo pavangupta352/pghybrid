@@ -18,10 +18,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Iterable, Mapping
 from dataclasses import dataclass, field, fields
-from typing import Any, Callable, Union
+from typing import TYPE_CHECKING, Any, Callable, Union
 
 from .config import Config
 from .sql import FusionMethod, build_search_sql
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only, so the runtime has no cycle
+    from .explain import ExplainReport, WeightReport
 
 #: What the caller's ``execute`` is expected to be. The row type is deliberately loose:
 #: anything dict-like survives :func:`row_mapping`.
@@ -303,7 +306,7 @@ class HybridSearch(_SearchBase):
 
     def explain(
         self, text: str | None = None, embedding: list[float] | None = None, **kwargs: Any
-    ) -> Any:
+    ) -> ExplainReport:
         """Diagnose one query. See :func:`pghybrid.explain.explain` for the arguments."""
         # Imported here rather than at module scope so the dependency runs one way:
         # the diagnostic layer is allowed to know about the runtime, not the reverse.
@@ -318,7 +321,7 @@ class HybridSearch(_SearchBase):
         *,
         fusion: FusionMethod | None = None,
         **kwargs: Any,
-    ) -> Any:
+    ) -> WeightReport:
         """Measure what the configured weights actually do to this query.
 
         Returns the :class:`~pghybrid.explain.WeightReport` for one fusion method:
@@ -367,7 +370,7 @@ class AsyncHybridSearch(_SearchBase):
 
     async def explain(
         self, text: str | None = None, embedding: list[float] | None = None, **kwargs: Any
-    ) -> Any:
+    ) -> ExplainReport:
         """Diagnose one query. See :func:`pghybrid.explain.explain_async`."""
         from .explain import explain_async
 
@@ -380,7 +383,7 @@ class AsyncHybridSearch(_SearchBase):
         *,
         fusion: FusionMethod | None = None,
         **kwargs: Any,
-    ) -> Any:
+    ) -> WeightReport:
         """Await the weight measurement described in :meth:`HybridSearch.effective_weights`."""
         from .explain import measure_weights_async
 

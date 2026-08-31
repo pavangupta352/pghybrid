@@ -455,13 +455,18 @@ function fusionClause(
   haveText: boolean,
   fusion: FusionMethod,
 ): [string, string] {
-  const vectorWeight = params.add(cfg.weights.vector);
-  const textWeight = params.add(cfg.weights.text);
+  // Every arithmetic parameter is cast explicitly rather than left to the server's
+  // type inference. JavaScript has one number type, so a driver sends 1 where Python
+  // sends 1.0, Postgres infers integer, and `1 / (60 + rank)` becomes integer division:
+  // every contribution truncates to zero and the ranking collapses to the tiebreaker.
+  // The failure is invisible — the query succeeds and returns rows, all scored 0.
+  const vectorWeight = `${params.add(cfg.weights.vector)}::float8`;
+  const textWeight = `${params.add(cfg.weights.text)}::float8`;
 
   let vectorContribution: string;
   let textContribution: string;
   if (fusion === "rrf") {
-    const k = params.add(cfg.k);
+    const k = `${params.add(cfg.k)}::float8`;
     vectorContribution = `${vectorWeight} / (${k} + v.rank)`;
     textContribution = `${textWeight} / (${k} + t.rank)`;
   } else if (fusion === "weighted") {

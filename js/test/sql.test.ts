@@ -353,8 +353,8 @@ describe("fusion", () => {
       limit: 5,
     });
     const scored = cte(sql, "scored");
-    expect(scored).toMatch(/coalesce\(\$\d+ \/ \(\$\d+ \+ v\.rank\), 0\) AS vector_contribution/);
-    expect(scored).toMatch(/coalesce\(\$\d+ \/ \(\$\d+ \+ t\.rank\), 0\) AS text_contribution/);
+    expect(scored).toMatch(/coalesce\(\$\d+::float8 \/ \(\$\d+::float8 \+ v\.rank\), 0\) AS vector_contribution/);
+    expect(scored).toMatch(/coalesce\(\$\d+::float8 \/ \(\$\d+::float8 \+ t\.rank\), 0\) AS text_contribution/);
     // k is bound once and referenced by both contributions.
     expect(params.filter((value) => value === 60)).toHaveLength(1);
   });
@@ -368,8 +368,8 @@ describe("fusion", () => {
       fusion: "weighted",
     });
     const scored = cte(sql, "scored");
-    expect(scored).toMatch(/coalesce\(\$\d+ \* \(1\.0 - v\.distance\), 0\) AS vector_contribution/);
-    expect(scored).toMatch(/coalesce\(\$\d+ \* t\.score, 0\) AS text_contribution/);
+    expect(scored).toMatch(/coalesce\(\$\d+::float8 \* \(1\.0 - v\.distance\), 0\) AS vector_contribution/);
+    expect(scored).toMatch(/coalesce\(\$\d+::float8 \* t\.score, 0\) AS text_contribution/);
     // Cosine distance is bounded and ts_rank is not, so the nominal weights do not
     // describe the actual influence of each signal. Nothing here should quietly start
     // normalising the two scales.

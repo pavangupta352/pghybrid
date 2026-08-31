@@ -23,10 +23,10 @@ scored AS (
     SELECT coalesce(v.id, t.id) AS id,
            v.rank AS vector_rank,
            v.distance AS vector_distance,
-           coalesce($11 / ($12 + v.rank), 0) AS vector_contribution,
+           coalesce($11::float8 / ($12::float8 + v.rank), 0) AS vector_contribution,
            t.rank AS text_rank,
            t.score AS text_score,
-           coalesce($13 / ($12 + t.rank), 0) AS text_contribution
+           coalesce($13::float8 / ($12::float8 + t.rank), 0) AS text_contribution
     FROM vector_candidates v
     FULL OUTER JOIN text_candidates t ON v.id = t.id
 ),

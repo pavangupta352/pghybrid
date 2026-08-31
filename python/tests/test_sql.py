@@ -344,8 +344,17 @@ def test_hybrid_fuses_with_a_full_outer_join_never_an_inner_join(config: Config)
 def test_rrf_contribution_is_weight_over_k_plus_rank(config: Config) -> None:
     sql, params = build_search_sql(config, embedding=[0.1], text="renewal", limit=5)
     scored = cte(sql, "scored")
-    assert re.search(r"coalesce\(\$\d+ / \(\$\d+ \+ v\.rank\), 0\) AS vector_contribution", scored)
-    assert re.search(r"coalesce\(\$\d+ / \(\$\d+ \+ t\.rank\), 0\) AS text_contribution", scored)
+    # The ::float8 casts are load-bearing, not decoration. Without them a driver
+    # that sends the weight and k as integers turns this into integer division and
+    # every contribution truncates to zero, silently.
+    assert re.search(
+        r"coalesce\(\$\d+::float8 / \(\$\d+::float8 \+ v\.rank\), 0\) AS vector_contribution",
+        scored,
+    )
+    assert re.search(
+        r"coalesce\(\$\d+::float8 / \(\$\d+::float8 \+ t\.rank\), 0\) AS text_contribution",
+        scored,
+    )
     # k is bound once and referenced by both contributions.
     assert params.count(60.0) == 1
 
@@ -355,9 +364,10 @@ def test_weighted_fusion_scores_on_the_raw_signals(config: Config) -> None:
     sql, _ = build_search_sql(config, embedding=[0.1], text="renewal", limit=5, fusion="weighted")
     scored = cte(sql, "scored")
     assert re.search(
-        r"coalesce\(\$\d+ \* \(1\.0 - v\.distance\), 0\) AS vector_contribution", scored
+        r"coalesce\(\$\d+::float8 \* \(1\.0 - v\.distance\), 0\) AS vector_contribution",
+        scored,
     )
-    assert re.search(r"coalesce\(\$\d+ \* t\.score, 0\) AS text_contribution", scored)
+    assert re.search(r"coalesce\(\$\d+::float8 \* t\.score, 0\) AS text_contribution", scored)
     # Cosine distance is bounded and ts_rank is not, so the nominal weights do not
     # describe the actual influence of each signal. That is the trap; explain() measures
     # it. Nothing here should quietly start normalising the two scales.

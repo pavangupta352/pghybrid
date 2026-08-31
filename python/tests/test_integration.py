@@ -376,3 +376,30 @@ def test_weights_change_the_ordering(connection, config):
     assert top(1.0, 0.0) != top(0.0, 1.0), (
         "leaning entirely on one signal should reproduce that signal's own winner"
     )
+
+
+def test_scores_survive_integer_typed_parameters(connection, config):
+    """The RRF arithmetic must not depend on how a driver types its parameters.
+
+    JavaScript has one number type, so a JS driver sends 1 where Python sends 1.0.
+    Postgres then infers integer for the weight and for k, `1 / (60 + rank)` becomes
+    integer division, and every contribution truncates to zero. Nothing errors: the
+    query succeeds, returns the right rows, and scores them all 0, so the ranking
+    silently degrades to whatever the tiebreaker happens to be.
+
+    This reproduces that by coercing every numeric parameter to an int before binding,
+    which is exactly what the TypeScript package does on the wire.
+    """
+    from pghybrid.sql import build_search_sql
+
+    sql, params = build_search_sql(config, embedding=query_vector(), text=DEMO_QUERY, limit=5)
+    as_integers = [int(p) if isinstance(p, float) else p for p in params]
+    assert any(isinstance(p, float) for p in params), "the fixture should exercise floats"
+
+    rows = connection.execute(sql, as_integers).fetchall()
+    assert rows, "the query should still return rows"
+    assert all(row["score"] > 0 for row in rows), (
+        "every score came back as zero, so the ::float8 casts in the fusion "
+        "expression have been dropped and the arithmetic is truncating"
+    )
+    assert rows[0]["title"] == PLANTED_TITLE

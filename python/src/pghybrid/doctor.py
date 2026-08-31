@@ -656,8 +656,11 @@ class _Prober:
             current = _as_int(gucs.get(guc), IVFFLAT_DEFAULT_PROBES)
             default = IVFFLAT_DEFAULT_PROBES
             lists = index.lists or 100
+            # The top of the range is probes = lists, which scans every list and is
+            # therefore exact. Including it gives the table an anchor: it shows what
+            # the index costs when it is not allowed to approximate at all.
             values = _sweep_values(
-                [1, 2, ivfflat_probes(lists), lists // 10, lists // 4, current],
+                [1, 2, ivfflat_probes(lists), lists // 4, lists // 2, lists, current],
                 low=1,
                 high=max(lists, 1),
             )
@@ -1109,6 +1112,24 @@ def _check_recall(report: DoctorReport) -> None:
             else f"Raise {knob}; the sweep shows what each value costs in latency.",
         )
     )
+    current = next((r.value for r in report.sweep if r.is_current), None)
+    if current is not None and current < result.k:
+        # pgvector explores ef_search candidates and returns the best k of them, so an
+        # ef_search below k cannot fill the result set however good the graph is.
+        report.findings.append(
+            Finding(
+                "error",
+                f"{knob} = {current} is below k = {result.k}",
+                f"The index is asked for {result.k} rows but only allowed to consider "
+                f"{current} candidates, so it can return fewer results than requested "
+                "and the ones it returns are the shallowest part of the graph.",
+                fix=f"SET {knob} = {max(result.k * 2, current)};",
+            )
+        )
+    for note in result.notes:
+        report.findings.append(
+            Finding("warn", f"the index ran short of candidates at k = {result.k}", note)
+        )
     if report.null_fraction and report.null_fraction > 0.01:
         report.findings.append(
             Finding(
@@ -1287,6 +1308,12 @@ def _render_report(report: DoctorReport, *, width: int = 78) -> str:
                     f"            at {current.setting} = {current.value}"
                     + (" (pgvector's default)" if current.is_default else "")
                 )
+        # Said out loud because it is the one way to over-read this number: a query
+        # vector taken from the table sits exactly on a data point, which is the
+        # easiest possible query for any index. Real queries score at or below this.
+        out.append(
+            "            read as a ceiling: queries drawn from the table are easier than real ones"
+        )
     else:
         out.append("  recall    not measured")
     out += ["", "INVENTORY", thin]

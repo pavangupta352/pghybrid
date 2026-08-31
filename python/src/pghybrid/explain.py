@@ -25,6 +25,7 @@ callable as :class:`~pghybrid.search.HybridSearch`.
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -789,15 +790,18 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
     # on the filter can only be added when it is a real expression.
     filter_order = f", ({filter_expr}) DESC" if filter_clause else ""
 
+    # Every CTE here is prefixed: an unprefixed name like `matches` or `target` would
+    # shadow a real table of that name, because a CTE outranks a table in the same
+    # statement whether or not the table name is quoted.
     ctes: list[str] = []
     target_from = table
 
     if plan.text is not None:
-        ctes.append(f"q AS (\n    SELECT {_tsquery_expr(cfg, plan.text, params)} AS tsq\n)")
-        target_from = f"{table}, q"
+        ctes.append(f"_find_q AS (\n    SELECT {_tsquery_expr(cfg, plan.text, params)} AS tsq\n)")
+        target_from = f"{table}, _find_q"
         tsv = _tsvector_expr(cfg)
-        text_matches = f"({tsv} @@ q.tsq)"
-        text_score = f"{cfg.rank_function}({tsv}, q.tsq)"
+        text_matches = f"({tsv} @@ _find_q.tsq)"
+        text_score = f"{cfg.rank_function}({tsv}, _find_q.tsq)"
     else:
         text_matches = "NULL::boolean"
         text_score = "NULL::double precision"
@@ -810,7 +814,7 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
 
     label = quote_ident(plan.label_column)
     ctes.append(
-        "target AS (\n"
+        "_find_target AS (\n"
         f"    SELECT {id_col} AS id,\n"
         f"           left(coalesce({label}::text, ''), 200) AS label,\n"
         f"           ({quote_ident(cfg.vector_column)} IS NULL) AS embedding_missing,\n"
@@ -825,34 +829,34 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
         ")"
     )
     ctes.append(
-        f"matches AS (\n    SELECT count(*) AS n\n    FROM {table}\n    WHERE {contains}\n)"
+        f"_find_matches AS (\n    SELECT count(*) AS n\n    FROM {table}\n    WHERE {contains}\n)"
     )
 
     if plan.embedding is not None:
         ctes.append(
-            "vector_position AS (\n"
+            "_find_vector_rank AS (\n"
             "    SELECT count(*) + 1 AS rank\n"
             f"    FROM {table}\n"
             f"    WHERE {quote_ident(cfg.vector_column)} IS NOT NULL\n"
-            f"      AND {distance} < (SELECT distance FROM target){filter_clause}\n"
+            f"      AND {distance} < (SELECT distance FROM _find_target){filter_clause}\n"
             ")"
         )
     else:
-        ctes.append("vector_position AS (\n    SELECT NULL::bigint AS rank\n)")
+        ctes.append("_find_vector_rank AS (\n    SELECT NULL::bigint AS rank\n)")
 
     if plan.text is not None:
         tsv = _tsvector_expr(cfg)
         ctes.append(
-            "text_position AS (\n"
+            "_find_text_rank AS (\n"
             "    SELECT count(*) + 1 AS rank\n"
-            f"    FROM {table}, q\n"
-            f"    WHERE {tsv} @@ q.tsq\n"
-            f"      AND {cfg.rank_function}({tsv}, q.tsq) > "
-            f"(SELECT text_score FROM target){filter_clause}\n"
+            f"    FROM {table}, _find_q\n"
+            f"    WHERE {tsv} @@ _find_q.tsq\n"
+            f"      AND {cfg.rank_function}({tsv}, _find_q.tsq) > "
+            f"(SELECT text_score FROM _find_target){filter_clause}\n"
             ")"
         )
     else:
-        ctes.append("text_position AS (\n    SELECT NULL::bigint AS rank\n)")
+        ctes.append("_find_text_rank AS (\n    SELECT NULL::bigint AS rank\n)")
 
     sql = (
         "WITH " + ",\n".join(ctes) + "\n"
@@ -863,10 +867,10 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
         "       t.text_matches,\n"
         "       t.text_score,\n"
         "       t.passes_filters,\n"
-        "       (SELECT n FROM matches) AS match_count,\n"
-        "       (SELECT rank FROM vector_position) AS global_vector_rank,\n"
-        "       (SELECT rank FROM text_position) AS global_text_rank\n"
-        "FROM target t"
+        "       (SELECT n FROM _find_matches) AS match_count,\n"
+        "       (SELECT rank FROM _find_vector_rank) AS global_vector_rank,\n"
+        "       (SELECT rank FROM _find_text_rank) AS global_text_rank\n"
+        "FROM _find_target t"
     )
     return params.render(sql, cfg.paramstyle)
 
@@ -885,7 +889,8 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
                 match_count=0,
                 reason=f"no row in {plan.config.table} contains that text (searched {columns})",
                 remedy=(
-                    "not indexed, so no ranking can retrieve it: an ingestion bug, not a tuning one"
+                    "the chunk is not in the table, so no amount of ranking will "
+                    "retrieve it — check ingestion and chunking, not the weights"
                 ),
             ),
         )
@@ -1086,6 +1091,26 @@ def _weight(value: float) -> str:
     return f"{text}.0" if "." not in text and "e" not in text else text
 
 
+def _wrap(text: str | None, width: int, indent: str, hanging: str) -> list[str]:
+    """Wrap one prose line of the report.
+
+    Only the diagnosis prose is wrapped, never the table: row ids, table names and
+    labels all vary in length, so a sentence built around them cannot be sized by
+    hand. Long words are left to overflow rather than split, because the long word is
+    usually an identifier and a broken identifier cannot be searched for.
+    """
+    if not text:
+        return []
+    return textwrap.wrap(
+        text,
+        width=max(40, width),
+        initial_indent=indent,
+        subsequent_indent=hanging,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
 def _fit(text: str, width: int, align: str, ellipsis: str) -> str:
     text = str(text)
     if len(text) > width:
@@ -1170,7 +1195,7 @@ def _render(report: ExplainReport, *, width: int, ascii_only: bool) -> str:
     lines.extend(_render_weights(report, glyphs))
     if report.find is not None:
         lines.append("")
-        lines.extend(_render_find(report, report.find, glyphs))
+        lines.extend(_render_find(report, report.find, glyphs, width))
     return "\n".join(lines)
 
 
@@ -1381,22 +1406,24 @@ def _verdict(report: ExplainReport, measurement: WeightReport, glyphs: Mapping[s
 
 
 def _render_find(
-    report: ExplainReport, finding: FindReport, glyphs: Mapping[str, str]
+    report: ExplainReport, finding: FindReport, glyphs: Mapping[str, str], width: int
 ) -> list[str]:
     dot = f" {glyphs['dot']} "
+    arrow = glyphs["arrow"]
     lines = [f'{_INDENT}find {glyphs["dot"]} "{finding.query}"', ""]
     body = _INDENT * 2
+    hanging = body + " " * (len(arrow) + 1)
 
     if not finding.found:
-        lines.append(f"{body}{finding.reason}")
-        if finding.remedy:
-            lines.append(f"{body}{glyphs['arrow']} {finding.remedy}")
+        lines += _wrap(finding.reason, width, body, body)
+        lines += _wrap(finding.remedy, width, f"{body}{arrow} ", hanging)
         return lines
 
     identity = [f"id {finding.id}"]
     if finding.label:
         identity.append(finding.label)
-    lines.append(body + dot.join(identity))
+    lines += _wrap(dot.join(identity), width, body, body)
+    lines += _wrap(finding.reason, width, body, body)
 
     signals = []
     if finding.vector_rank is not None:
@@ -1420,13 +1447,15 @@ def _render_find(
     elif finding.text_score is not None:
         signals.append(f"{report.config.rank_function} {_num(finding.text_score)}")
     if signals:
-        lines.append(body + dot.join(signals))
-    lines.append(f"{body}{finding.reason}")
-
+        lines += _wrap(dot.join(signals), width, body, body)
     if finding.match_count > 1:
-        lines.append(f"{body}{finding.match_count} rows contain that text; the closest is shown")
-    if finding.remedy:
-        lines.append(f"{body}{glyphs['arrow']} {finding.remedy}")
+        lines += _wrap(
+            f"{finding.match_count} rows contain that text; the closest is shown",
+            width,
+            body,
+            body,
+        )
+    lines += _wrap(finding.remedy, width, f"{body}{arrow} ", hanging)
     return lines
 
 
