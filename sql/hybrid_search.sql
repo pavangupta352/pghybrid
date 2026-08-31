@@ -176,4 +176,10 @@ SELECT
 FROM fused f
 JOIN chunks c ON c.id = f.id                       -- CHANGE ME: your table
 ORDER BY score DESC, f.id
+-- $4 is the page size. If you add an OFFSET here, raise $3 (the per-signal
+-- candidate count) to cover offset + limit, and keep it the SAME for every page.
+-- Ranks are assigned inside the candidate CTEs, so a candidate count that grows
+-- with the offset produces a different ranking on every page: rows enter the
+-- text candidates as it widens, gain a contribution and jump the order. Paging
+-- that way returned 71 distinct rows across 8 pages of 10 instead of 80.
 LIMIT $4;

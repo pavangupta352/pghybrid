@@ -786,6 +786,70 @@ describe("limits and the candidate budget", () => {
     expect(boundLimit(cte(sql, "text_candidates"), params)).toBe(13);
   });
 
+  it("does not let the candidate pool depend on the offset", () => {
+    // Ranks are assigned inside the pool, so a pool that varies per page reorders pages.
+    // Widening it to cover the offset looks like the obvious fix for an empty page and is
+    // worse than the empty page: rows enter the text candidates as the pool grows, gain a
+    // text contribution and jump the fused ordering, so paging 8x10 returned 71 distinct
+    // rows instead of 80 with 9 that a single limit=80 query returns never shown at all.
+    const pools = new Set<number>();
+    for (const offset of [0, 10, 50, 89, 90]) {
+      const { sql, params } = buildSearchSql(makeConfig({ candidateLimit: 100 }), {
+        embedding: [0.1],
+        text: "renewal",
+        limit: 10,
+        offset,
+      });
+      pools.add(boundLimit(cte(sql, "vector_candidates"), params));
+      pools.add(boundLimit(cte(sql, "text_candidates"), params));
+    }
+    expect([...pools]).toEqual([100]);
+  });
+
+  it("refuses a page outside the candidate pool", () => {
+    // An empty page is indistinguishable from having reached the end of the results.
+    expect(() =>
+      buildSearchSql(makeConfig({ candidateLimit: 50 }), {
+        embedding: [0.1],
+        text: "renewal",
+        limit: 10,
+        offset: 50,
+      }),
+    ).toThrow(/at least 60.*it is 50/);
+
+    // The last page that fits is still fine.
+    expect(
+      buildSearchSql(makeConfig({ candidateLimit: 50 }), {
+        embedding: [0.1],
+        text: "renewal",
+        limit: 10,
+        offset: 40,
+      }).sql,
+    ).toContain("vector_candidates");
+  });
+
+  it("counts the near-miss band against the pool", () => {
+    // The near-miss band is rows we return, so it occupies the pool like any other.
+    expect(() =>
+      buildSearchSql(makeConfig({ candidateLimit: 50 }), {
+        embedding: [0.1],
+        limit: 10,
+        offset: 40,
+        nearMiss: 11,
+      }),
+    ).toThrow(/at least 61/);
+  });
+
+  it("still widens the pool for a large limit on the first page", () => {
+    // There is only one page, so there is no ordering to keep stable between pages.
+    const { sql, params } = buildSearchSql(makeConfig({ candidateLimit: 50 }), {
+      embedding: [0.1],
+      text: "renewal",
+      limit: 500,
+    });
+    expect(boundLimit(cte(sql, "vector_candidates"), params)).toBe(500);
+  });
+
   it("leaves a large enough candidate limit alone", () => {
     const { sql, params } = buildSearchSql(makeConfig({ candidateLimit: 200 }), {
       embedding: [0.1],

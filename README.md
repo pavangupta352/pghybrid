@@ -433,7 +433,7 @@ Three things in it are load-bearing:
 | `fusion` | `"rrf"` | or `"weighted"`, kept so `explain` can show you what it does. Its scores are not a similarity: `1 - distance` assumes a distance bounded in `[0,1]`, which only cosine is, so inner product comes out above 1 and L2/L1 can go negative. The *ordering* is correct for every metric — only the scale is meaningless |
 | `k` | `60` | the RRF constant |
 | `weights` | `1.0 / 1.0` | relative influence of each signal |
-| `candidate_limit` | `50` | rows each signal contributes to the fusion |
+| `candidate_limit` | `50` | rows each signal contributes to the fusion. **This is the whole result set, and it bounds pagination.** Ranks are assigned inside the pool, so it deliberately does not grow with `offset` — a pool that widened per page would reorder every page. Asking for a page past it raises rather than returning an empty page, which would be indistinguishable from reaching the end. Set it to the deepest page you intend to serve and keep it the same across pages |
 | `max_query_terms` | `200` | terms taken from one query under `"any"` matching. Repeats are collapsed first; past ~4,200 OR-ed terms Postgres reports a stack depth limit, which is not a useful thing to show someone who pasted a document into a search box |
 | `metric` | `cosine` | `cosine`, `l2`, `inner_product`, `l1` |
 | `vector_type` | `"vector"` | `"halfvec"` halves index size and build time, usually free on recall |

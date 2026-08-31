@@ -366,10 +366,28 @@ export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuer
   // A zero candidate limit is treated as "not supplied" rather than as an out-of-range
   // value, which is what the Python package does; the two have to agree.
   let candidateLimit = options.candidateLimit || cfg.candidateLimit;
+  // The pool has to cover the rows we intend to return, or the result set is truncated
+  // before ranking happens. It must NOT depend on the offset, though, and that is the
+  // subtle part: ranks are assigned inside the pool, so a pool that widens as you page
+  // deeper is a different ranking on every page. Widening it per page made 8 pages of 10
+  // return 71 distinct rows instead of 80, with 9 rows that a single limit=80 query
+  // returns never shown at all — a search UI would print duplicates and drop results.
   if (candidateLimit < limit + nearMiss) {
-    // Fusing fewer candidates than we intend to return would truncate the result set
-    // before ranking ever happens.
     candidateLimit = limit + nearMiss;
+  }
+
+  // So the pool is the result set, and a page outside it is an error rather than an empty
+  // page. Elasticsearch draws the same line at max_result_window and for the same reason.
+  // Silently returning nothing is the worst of the three options: it is indistinguishable
+  // from having reached the end, which is what the caller will conclude.
+  if (offset + limit + nearMiss > candidateLimit) {
+    throw new Error(
+      `offset ${offset} with limit ${limit} needs a candidate pool of at least ` +
+        `${offset + limit + nearMiss}, but it is ${candidateLimit}. Ranks are assigned ` +
+        "inside the pool, so widening it per page would reorder every page; raise " +
+        "Config.candidateLimit (or the candidateLimit argument) to the deepest page you " +
+        "intend to serve, and keep it the same across pages.",
+    );
   }
 
   const params = new Params();

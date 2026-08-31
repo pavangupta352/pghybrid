@@ -53,6 +53,17 @@ First release.
   instead, the exclusion still applies, and with no embedding to fall back on the call
   says what is missing rather than returning a list ranked by nothing.
 
+- Pagination past the candidate pool no longer returns an empty page. `candidate_limit`
+  bounds the whole result set, so with the default 50 and a page size of 10, page 6 came
+  back empty on a table where 490 rows matched — indistinguishable from having reached
+  the end. It now raises, naming the pool size needed.
+
+  The pool deliberately does **not** grow to cover the offset, which was the first fix
+  and was worse than the bug: ranks are assigned inside the pool, so a pool that widens
+  per page reorders every page. Paging 8×10 that way returned 71 distinct rows instead of
+  80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
+  in a search UI, with nothing to indicate anything was wrong.
+
 ### Security
 - `language`, `query_parser` and `rank_function` are validated. They are interpolated
   rather than bound, and were unchecked, so a `Config` built from user input was an

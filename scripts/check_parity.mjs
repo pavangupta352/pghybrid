@@ -382,6 +382,23 @@ json.dump({"rendered": rendered, "errors": errors}, sys.stdout)
 `;
 
 /**
+ * Compare two error messages, allowing only the naming convention to differ.
+ *
+ * A message that names the option to change is far more useful than one that does not,
+ * and the option is `candidate_limit` in Python and `candidateLimit` in TypeScript. That
+ * difference is deliberate; every other difference is a bug. So both sides are folded to
+ * snake_case before comparison, which leaves any real divergence in wording, values or
+ * punctuation visible.
+ */
+function sameMessage(expected, actual) {
+  if (expected === null || actual === null) {
+    return expected === actual;
+  }
+  const fold = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+  return fold(expected) === fold(actual);
+}
+
+/**
  * Inputs both packages must refuse, with the same sentence.
  *
  * Rejection is part of the contract. A query one language builds a statement for and the
@@ -404,6 +421,14 @@ const ERROR_FIXTURES = [
   fixture("error-limit-zero", {}, { embedding: [0.1], limit: 0 }),
   fixture("error-limit-negative", {}, { embedding: [0.1], limit: -1 }),
   fixture("error-negative-offset", {}, { embedding: [0.1], limit: 5, offset: -1 }),
+  // A page outside the candidate pool. Widening the pool per page would reorder every
+  // page, so this is an error rather than an empty result.
+  fixture("error-page-past-the-pool", {}, { embedding: [0.1], limit: 10, offset: 50 }),
+  fixture(
+    "error-page-past-an-explicit-pool",
+    {},
+    { embedding: [0.1], limit: 10, offset: 30, candidateLimit: 25 },
+  ),
 ];
 
 function renderWithPython(fixtures) {
@@ -547,7 +572,7 @@ async function main() {
       actual = error instanceof Error ? error.message : String(error);
     }
 
-    if (expected.message === actual) {
+    if (sameMessage(expected.message, actual)) {
       process.stdout.write(`  ok   ${item.name}\n`);
       continue;
     }

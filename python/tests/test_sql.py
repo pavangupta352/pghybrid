@@ -698,6 +698,56 @@ def test_candidate_limit_is_raised_to_cover_limit_plus_near_miss(make_config: An
     assert bound_limit(cte(sql, "text_candidates"), params) == 13
 
 
+def test_the_candidate_pool_does_not_depend_on_the_offset(make_config: Any) -> None:
+    """Ranks are assigned inside the pool, so a pool that varies per page reorders pages.
+
+    This is the property that makes pagination usable at all. Widening the pool to cover
+    the offset looks like the obvious fix for an empty page and is worse than the empty
+    page: rows enter the text candidates as the pool grows, gain a text contribution and
+    jump the fused ordering, so paging 8x10 returned 71 distinct rows instead of 80 with
+    9 that a single limit=80 query returns never shown at all.
+    """
+    cfg = make_config(candidate_limit=100)
+    pools = set()
+    # Every legal offset, including the last one that fits.
+    for offset in (0, 10, 50, 89, 90):
+        sql, params = build_search_sql(
+            cfg, embedding=[0.1], text="renewal", limit=10, offset=offset
+        )
+        pools.add(bound_limit(cte(sql, "vector_candidates"), params))
+        pools.add(bound_limit(cte(sql, "text_candidates"), params))
+    assert pools == {100}, f"the pool changed with the offset: {sorted(pools)}"
+
+
+def test_a_page_outside_the_candidate_pool_is_an_error(make_config: Any) -> None:
+    """An empty page is indistinguishable from having reached the end of the results."""
+    cfg = make_config(candidate_limit=50)
+    with pytest.raises(ValueError) as excinfo:
+        build_search_sql(cfg, embedding=[0.1], text="renewal", limit=10, offset=50)
+    message = str(excinfo.value)
+    # The numbers a caller needs to act, not just a complaint.
+    assert "at least 60" in message and "it is 50" in message
+    assert "candidate_limit" in message
+
+    # The last page that fits is still fine.
+    assert build_search_sql(cfg, embedding=[0.1], text="renewal", limit=10, offset=40)
+
+
+def test_near_miss_counts_against_the_pool_too(make_config: Any) -> None:
+    """The near-miss band is rows we return, so it occupies the pool like any other."""
+    cfg = make_config(candidate_limit=50)
+    assert build_search_sql(cfg, embedding=[0.1], text="renewal", limit=10, offset=30, near_miss=10)
+    with pytest.raises(ValueError, match="at least 61"):
+        build_search_sql(cfg, embedding=[0.1], text="renewal", limit=10, offset=40, near_miss=11)
+
+
+def test_a_large_limit_at_the_first_page_still_widens_the_pool(make_config: Any) -> None:
+    """There is only one page, so there is no ordering to keep stable between pages."""
+    cfg = make_config(candidate_limit=50)
+    sql, params = build_search_sql(cfg, embedding=[0.1], text="renewal", limit=500)
+    assert bound_limit(cte(sql, "vector_candidates"), params) == 500
+
+
 def test_candidate_limit_is_left_alone_when_already_large_enough(make_config: Any) -> None:
     cfg = make_config(candidate_limit=200)
     sql, params = build_search_sql(cfg, embedding=[0.1], text=None, limit=10, near_miss=3)

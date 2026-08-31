@@ -337,6 +337,84 @@ def test_recency_reranks_the_candidate_pool_and_does_not_retrieve(connection):
         connection.execute("DROP TABLE IF EXISTS recency_probe")
 
 
+def test_paging_returns_each_row_once_and_matches_one_big_query(connection):
+    """Paging to the edge of the pool reproduces one query of the same depth.
+
+    The pool here is exactly the depth being paged to, so this walks right up to the
+    boundary: the last legal page has to be full and in the right order, and the page
+    after it has to be refused.
+
+    What this does *not* catch, and it is worth being precise about, is the widen-per-page
+    bug itself — inside the legal range a pool that widens with the offset and a fixed one
+    are the same number, so they agree here. The test that distinguishes them is
+    test_a_page_outside_the_candidate_pool_is_an_error, because the two designs differ
+    only past the boundary. This one pins the user-visible contract: pages tile a single
+    ranking without duplicates or gaps.
+
+    The corpus deliberately decorrelates the two signals — random angles, random words —
+    because a row entering the text candidates late is what reorders a fused ranking, and
+    a corpus where the signals agree would hide any such reordering.
+    """
+    import math
+    import random
+
+    connection.execute("DROP TABLE IF EXISTS paging_probe")
+    connection.execute(
+        "CREATE TABLE paging_probe ("
+        "  id bigserial PRIMARY KEY, content text NOT NULL, embedding vector(2),"
+        "  fts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content,'')))"
+        "  STORED)"
+    )
+    try:
+        rng = random.Random(7)
+        words = ["renewal", "notice", "termination", "clause", "invoice", "liability"]
+        for i in range(500):
+            angle = rng.random() * 2 * math.pi
+            connection.execute(
+                "INSERT INTO paging_probe (content, embedding) VALUES (%s, %s::vector)",
+                (
+                    " ".join(rng.choices(words, k=6)) + f" number {i}",
+                    f"[{math.cos(angle)},{math.sin(angle)}]",
+                ),
+            )
+
+        cfg = Config(
+            table="paging_probe",
+            text_column="content",
+            vector_column="embedding",
+            tsvector_column="fts",
+            paramstyle="pyformat",
+            # Exactly the depth paged to below, so the last page sits on the boundary.
+            candidate_limit=80,
+        )
+        search = HybridSearch(cfg, execute=lambda sql, p: connection.execute(sql, p).fetchall())
+
+        paged = []
+        for page in range(8):
+            rows = search.search("renewal notice", embedding=[1.0, 0.0], limit=10, offset=page * 10)
+            assert len(rows) == 10, f"page {page + 1} came back short"
+            paged += [r.id for r in rows]
+
+        assert len(set(paged)) == 80, "a row appeared on two different pages"
+        one_shot = [r.id for r in search.search("renewal notice", embedding=[1.0, 0.0], limit=80)]
+        assert paged == one_shot, (
+            "paging does not reproduce a single query of the same depth, so the ranking "
+            "is changing between pages"
+        )
+
+        # One row past the pool is refused rather than silently empty.
+        with pytest.raises(ValueError, match="candidate pool"):
+            search.search("renewal notice", embedding=[1.0, 0.0], limit=10, offset=80)
+    finally:
+        connection.execute("DROP TABLE IF EXISTS paging_probe")
+
+
+def test_paging_past_the_pool_says_so_instead_of_returning_nothing(search):
+    """An empty page reads as "no more results", which is the wrong conclusion."""
+    with pytest.raises(ValueError, match="candidate pool"):
+        search.search(DEMO_QUERY, embedding=query_vector(), limit=10, offset=50)
+
+
 def test_highlight_marks_the_matched_terms(search):
     rows = search.search(DEMO_QUERY, embedding=query_vector(), limit=3, highlight=True)
     assert any("<mark>" in (r.highlight or "") for r in rows)
