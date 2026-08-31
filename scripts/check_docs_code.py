@@ -2,7 +2,7 @@
 
 There is already a check that the README's *output* blocks match what the tool prints.
 The input blocks had nothing, on the README or on the migration guides, and they rot the
-same way — worse, because a reader runs them before they have any reason to trust the
+same way, worse, because a reader runs them before they have any reason to trust the
 project, and the guides address people who are mid-migration and least willing to forgive
 a broken example.
 
@@ -13,7 +13,7 @@ could see:
     ``title``, so every line of a new user's first run came back ``None``;
   * the TypeScript block wrote ``import { Config, HybridSearch }`` where ``Config`` is a
     type-only export, which is fine until the reader's tsconfig sets
-    ``verbatimModuleSyntax`` — the setting TypeScript 5 recommends — and then it is a
+    ``verbatimModuleSyntax``, the setting TypeScript 5 recommends, and then it is a
     compile error on line 1.
 
 Blocks are opted in with an HTML comment on the line before the fence, which renders as
@@ -22,8 +22,8 @@ nothing on GitHub:
     <!-- check:python -->    run it against the demo database
     <!-- check:ts -->        typecheck it against the built package
 
-Fragments that are deliberately not runnable — four assignments to the same ``const`` to
-show four adapters — simply carry no marker.
+Fragments that are deliberately not runnable, four assignments to the same ``const`` to
+show four adapters, simply carry no marker.
 
     docker compose up -d && python scripts/check_docs_code.py
 """
@@ -55,11 +55,14 @@ FIXTURES = ROOT / "scripts" / "doc_fixtures.sql"
 # come from the environment like every other script here does.
 DSN = os.environ.get(
     "PGHYBRID_TEST_DSN",
-    os.environ.get("PGHYBRID_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"),
+    os.environ.get(
+        "PGHYBRID_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+    ),
 )
 
 BLOCK = re.compile(
-    r"<!-- check:(?P<kind>python|ts|sql) -->\n```(?:python|ts|sql)\n(?P<body>.*?)```", re.DOTALL
+    r"<!-- check:(?P<kind>python|ts|sql) -->\n```(?:python|ts|sql)\n(?P<body>.*?)```",
+    re.DOTALL,
 )
 
 ASSERTS = ROOT / "scripts" / "doc_asserts"
@@ -80,7 +83,7 @@ def embed(text):
 
     The guides write `embed(query)` with a comment saying "whatever you already use",
     which is the honest thing to show and is not runnable. Supplying it here keeps the
-    rest of those blocks — the part that is this project's API — under test.
+    rest of those blocks, the part that is this project's API, under test.
     """
     return query_vector
 '''
@@ -96,7 +99,7 @@ failures: list[str] = []
 
 
 def report(name: str, ok: bool, detail: str = "") -> None:
-    print(f"  {'ok  ' if ok else 'FAIL'}  {name}{f' — {detail}' if detail else ''}")
+    print(f"  {'ok  ' if ok else 'FAIL'}  {name}{f', {detail}' if detail else ''}")
     if not ok:
         failures.append(name)
 
@@ -123,7 +126,11 @@ def check_python(workspace: pathlib.Path) -> None:
     found = blocks("python")
     print(f"\nPython blocks ({len(found)})")
     if not found:
-        report("at least one python block is checked", False, "no <!-- check:python --> markers")
+        report(
+            "at least one python block is checked",
+            False,
+            "no <!-- check:python --> markers",
+        )
         return
     for index, (page, body) in enumerate(found, 1):
         script = workspace / f"readme_{index}.py"
@@ -154,7 +161,9 @@ def check_ts(workspace: pathlib.Path) -> None:
     found = blocks("ts")
     print(f"\nTypeScript blocks ({len(found)})")
     if not found:
-        report("at least one ts block is checked", False, "no <!-- check:ts --> markers")
+        report(
+            "at least one ts block is checked", False, "no <!-- check:ts --> markers"
+        )
         return
 
     project = workspace / "consumer"
@@ -170,14 +179,20 @@ def check_ts(workspace: pathlib.Path) -> None:
         text=True,
         check=True,
     )
-    packed = subprocess.run(
-        ["npm", "pack", "--pack-destination", str(workspace)],
-        cwd=ROOT / "js",
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip().splitlines()[-1]
-    (project / "package.json").write_text(json.dumps({"name": "c", "private": True, "type": "module"}))
+    packed = (
+        subprocess.run(
+            ["npm", "pack", "--pack-destination", str(workspace)],
+            cwd=ROOT / "js",
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        .stdout.strip()
+        .splitlines()[-1]
+    )
+    (project / "package.json").write_text(
+        json.dumps({"name": "c", "private": True, "type": "module"})
+    )
     subprocess.run(
         ["npm", "install", "--silent", str(workspace / packed), "typescript"],
         cwd=project,
@@ -208,10 +223,15 @@ def check_ts(workspace: pathlib.Path) -> None:
         for stale in project.glob("*.ts"):
             stale.unlink()
         (project / f"readme_{index}.ts").write_text(TS_PREAMBLE + body)
-        result = subprocess.run(["npx", "tsc"], cwd=project, capture_output=True, text=True)
+        result = subprocess.run(
+            ["npx", "tsc"], cwd=project, capture_output=True, text=True
+        )
         first = f"{page}: {body.strip().splitlines()[0][:44]}"
-        report(first, result.returncode == 0, result.stdout.strip().splitlines()[0][:120]
-               if result.returncode else "")
+        report(
+            first,
+            result.returncode == 0,
+            result.stdout.strip().splitlines()[0][:120] if result.returncode else "",
+        )
 
 
 def check_sql() -> None:
@@ -248,7 +268,9 @@ def check_sql() -> None:
 
                 assertion = ASSERTS / f"{pathlib.Path(page).stem}.sql"
                 if not assertion.exists():
-                    report(f"{page}: has assertions", False, f"expected {assertion.name}")
+                    report(
+                        f"{page}: has assertions", False, f"expected {assertion.name}"
+                    )
                     continue
                 # Every statement that returns rows must return true in the first column.
                 # Statements that return nothing are the seeding the assertions need, and

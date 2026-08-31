@@ -28,7 +28,7 @@ Known and deliberate, so not vulnerabilities on their own:
 - The generated SQL is meant to be read, copied and run by hand. Anything you paste into a
   psql session runs with your privileges.
 - `pghybrid` never opens a connection. Whatever your `execute` callable can do, a search
-  can do, so grant it the least privilege that works — read-only is enough for everything
+  can do, so grant it the least privilege that works, read-only is enough for everything
   except `init --apply`.
 - `explain` and `doctor` print row content and index definitions. Treat their output as you
   would treat the data itself.
@@ -37,8 +37,8 @@ Known and deliberate, so not vulnerabilities on their own:
 
 - **Interpolated query fragments were unvalidated.** `language`, `query_parser` and
   `rank_function` are parts of the query rather than values and so cannot be bound. They
-  were typed but never checked at run time, which meant a `Config` built from user input —
-  an application letting someone pick a search language, for instance — could close the
+  were typed but never checked at run time, which meant a `Config` built from user input, 
+  an application letting someone pick a search language, for instance, could close the
   string literal it sat inside and append arbitrary SQL. Fixed before the first release,
   in both packages, along with a second path in the CLI that applied overrides with
   `setattr` and so skipped the validation entirely.

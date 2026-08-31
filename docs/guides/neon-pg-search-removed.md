@@ -11,14 +11,14 @@ There is a third: **you may not need a BM25 extension at all.**
 ## What you actually lose
 
 `pg_search` gives you real BM25 ranking. Postgres' built-in full-text search gives you
-`ts_rank_cd`, which is a weaker ranking function — it scores by cover density rather than
+`ts_rank_cd`, which is a weaker ranking function, it scores by cover density rather than
 by term frequency against corpus statistics. On a keyword-only search over a large corpus,
 BM25 is meaningfully better and you should not pretend otherwise.
 
 But most people reaching for `pg_search` are not building a keyword-only search engine.
 They are building retrieval for a RAG pipeline, where keyword search is one of two signals
 and the other is `pgvector`. In that setting the ranking function matters far less than
-whether the two signals are combined correctly — and combining them correctly is something
+whether the two signals are combined correctly, and combining them correctly is something
 you can do on stock Postgres today.
 
 ## The replacement
@@ -96,15 +96,15 @@ order by score desc limit 20;
 
 Three things worth knowing before you paste that:
 
-**Do not sum the raw scores.** The obvious translation —
-`0.7 * (1 - distance) + 0.3 * ts_rank_cd(...)` — does not do what it reads as. Cosine
+**Do not sum the raw scores.** The obvious translation, 
+`0.7 * (1 - distance) + 0.3 * ts_rank_cd(...)`, does not do what it reads as. Cosine
 distance is bounded in `[0,1]` and clusters tightly; `ts_rank_cd` is unbounded and small.
 The weights set the constants, not the influence. Fusing ranks avoids the problem entirely
 because ranks share a scale.
 
 **OR your query terms.** `websearch_to_tsquery('english', 'renewal notice period')` becomes
 `'renew' & 'notic' & 'period'` and matches only documents containing all three. Coming from
-`@@@`, whose defaults are more forgiving, this reads as "keyword search stopped working" —
+`@@@`, whose defaults are more forgiving, this reads as "keyword search stopped working", 
 and because the vector side still returns rows, the search appears to work while quietly
 running on one signal.
 
@@ -112,7 +112,7 @@ running on one signal.
 
 **Rank after limiting, not before.** A `rank()` in the same select as `order by ... limit`
 has to see every matching row before the limit can apply, so its cost scales with how many
-rows match rather than with the limit — 1.19ms against 0.85ms on 100k rows, widening as the
+rows match rather than with the limit, 1.19ms against 0.85ms on 100k rows, widening as the
 table grows. Add a tiebreaker to the inner `order by` too: `ts_rank_cd` ties heavily, and
 without one the rows chosen at the cut-off can differ between identical runs.
 
@@ -127,7 +127,7 @@ pghybrid doctor --dsn "$DATABASE_URL" --table documents
 That reports recall@k measured against exact search, whether your index is being used, and
 where filtered queries are losing rows. If keyword ranking quality turns out to be your
 bottleneck rather than fusion or recall, then ParadeDB is the right move and you will have
-the evidence for it. If it is not — and for hybrid retrieval it usually is not — you have
+the evidence for it. If it is not, and for hybrid retrieval it usually is not, you have
 one fewer piece of infrastructure to run.
 
 ---

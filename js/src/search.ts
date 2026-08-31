@@ -13,8 +13,8 @@
  * ```
  *
  * The row shaping is the part worth being careful about. A row found by only one
- * signal has a NULL rank for the other, and the natural implementation —
- * `Number(row.text_rank)` — turns that into NaN on exactly the rows hybrid search
+ * signal has a NULL rank for the other, and the natural implementation, 
+ * `Number(row.text_rank)`, turns that into NaN on exactly the rows hybrid search
  * exists to surface. Every conversion here tolerates NULL and says so.
  */
 
@@ -109,8 +109,8 @@ export function rowMapping(row: unknown): Row {
 /**
  * Number conversion that passes NULL through instead of turning it into NaN.
  *
- * Also normalises the strings a driver returns for bigint and numeric columns — the
- * rank() window function is a bigint, so node-postgres hands back "2" rather than 2 —
+ * Also normalises the strings a driver returns for bigint and numeric columns, the
+ * rank() window function is a bigint, so node-postgres hands back "2" rather than 2, 
  * so a caller never has to think about which driver produced a score.
  */
 export function asFloat(value: unknown): number | null {
@@ -234,7 +234,7 @@ function normaliseText(text: string | null | undefined): string | null {
  * Hybrid search over one table, driven by an `execute` callable.
  *
  * `execute(sql, params)` must run the statement and return the rows as objects.
- * Everything else — connecting, pooling, retrying, tracing — stays in the caller's
+ * Everything else, connecting, pooling, retrying, tracing, stays in the caller's
  * code where it belongs.
  */
 export class HybridSearch {

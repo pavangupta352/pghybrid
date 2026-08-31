@@ -22,17 +22,17 @@ extension you need superuser to install.
 </p>
 
 A contract. Someone asks **"renewal notice period"**. The clause that answers it says
-*"sixty days written notice prior to the anniversary date"* — it never uses the word
+*"sixty days written notice prior to the anniversary date"*, it never uses the word
 *renewal*.
 
 Semantic search puts a plausible-but-wrong clause first. Keyword search puts the clause
 that *uses all three words and answers none of them* first. The right answer is second on
-both, and first on neither — which is exactly the case rank fusion exists to fix.
+both, and first on neither, which is exactly the case rank fusion exists to fix.
 
 That image is generated from a live query by
 [`scripts/make_demo_svg.py`](scripts/make_demo_svg.py), which refuses to draw itself if
 fusion stops surfacing the right clause. Reproduce it yourself in about a minute:
-[`examples/`](examples/) — which also shows [using pghybrid as a LangChain
+[`examples/`](examples/), which also shows [using pghybrid as a LangChain
 retriever](examples/langchain_retriever.py) in about twenty lines.
 
 ## Why this exists
@@ -49,12 +49,12 @@ extensions. On managed Postgres you usually cannot install extensions at all.
 | Amazon Aurora | ✅ | ❌ | ✅ |
 | Google Cloud SQL | ✅ | ❌ | ✅ |
 | Azure Database | ✅ | ❌ | ✅ |
-| Supabase | ✅ built in | ❌ [no integration](https://supabase.com/partners/paradedb) — needs replication to a separate instance | ✅ |
+| Supabase | ✅ built in | ❌ [no integration](https://supabase.com/partners/paradedb), needs replication to a separate instance | ✅ |
 | Neon | ✅ | ❌ [removed for new projects, March 2026](https://neon.com/docs/extensions/pg_search) | ✅ |
 | Heroku Postgres | ✅ | ❌ | ✅ |
 | Self-hosted | ✅ | ✅ | ✅ |
 
-This is the whole pitch. It is **not** *"better search than ParadeDB"* — `pg_search`'s BM25
+This is the whole pitch. It is **not** *"better search than ParadeDB"*, `pg_search`'s BM25
 is genuinely better than `ts_rank_cd`, and if you can install it, you probably should.
 This is *"search you can actually install."*
 
@@ -66,7 +66,7 @@ npm install pghybrid          # TypeScript / JavaScript
 ```
 
 Zero runtime dependencies in both. `pghybrid` generates SQL and hands it to the driver you
-already use — psycopg, asyncpg, SQLAlchemy, node-postgres, Drizzle, Supabase. It never
+already use, psycopg, asyncpg, SQLAlchemy, node-postgres, Drizzle, Supabase. It never
 opens a connection of its own and never calls an embedding provider.
 
 Or **install nothing at all**: [`sql/hybrid_search.sql`](sql/hybrid_search.sql) and
@@ -111,12 +111,12 @@ const rows = await search.search("renewal notice period", { embedding, limit: 10
 ```
 
 You pass the embedding in. `pghybrid` never calls a model, so it works with OpenAI, Cohere,
-Voyage, a local sentence-transformer, or anything else — and it needs no API key.
+Voyage, a local sentence-transformer, or anything else, and it needs no API key.
 
 ### Your driver, in one line
 
 Writing that `execute` closure yourself is fine, but it means choosing a placeholder
-style — and `$1` and `%s` are not interchangeable. Get it wrong and the error talks about
+style, and `$1` and `%s` are not interchangeable. Get it wrong and the error talks about
 parameter counts, not about the cause. The adapters set it for you:
 
 ```python
@@ -138,7 +138,7 @@ const search = forKysely(db, config);            // via a raw compiled query
 ```
 
 Every one of these is tested against a real server and asserted to return **the same rows
-in the same order with the same scores** — a driver is a transport, not a dialect.
+in the same order with the same scores**, a driver is a transport, not a dialect.
 
 Prisma is not in that list because it has not been run here, and this project does not
 ship adapters it has not executed. It is one line, and it works:
@@ -160,7 +160,7 @@ This is the shape almost everyone writes:
 ```
 
 It reads as *70% semantic, 30% keyword*. It is not. Cosine distance is bounded in `[0,1]`
-and clusters tightly — your top 50 candidates might all sit between 0.62 and 0.81, a span
+and clusters tightly: your top 50 candidates might all sit between 0.62 and 0.81, a span
 of 0.19. `ts_rank_cd` is **unbounded** and on short chunks typically lands near 0.02.
 
 The weights describe the constants, not the influence. **Tuning them cannot fix it**,
@@ -193,7 +193,7 @@ score = Σ  weight / (k + rank)
 
 That run uses a query whose terms reach every row, so both signals have full
 coverage (`12/12`) and the comparison is about scale alone. The corpus places its
-vectors evenly by hand — which is
+vectors evenly by hand, which is
 the *best* case for weighted fusion, and the gap is still visible. On real embeddings it
 is wider, because real cosine similarities bunch into a narrow band while `ts_rank_cd`
 does not. Do not take a number from this README; run `explain` on your own index, which
@@ -201,14 +201,14 @@ is the entire reason the command exists.
 
 `explain` also separates a second effect that is easy to mistake for the first. If one
 signal matched far fewer rows than the other, it is doing more of the discriminating work
-in that result set regardless of any weight you set — the header line reports coverage
+in that result set regardless of any weight you set, the header line reports coverage
 (`12 by vector · 4 by text · 4 by both`) so you can tell a **scale** problem, which
 switching to RRF fixes, from a **coverage** one, which it does not and should not.
 
 ### 2. Your keyword search matches nothing
 
 Every Postgres query parser combines terms with **AND**. `websearch_to_tsquery` turns
-`renewal notice period` into `'renew' & 'notic' & 'period'` — documents must contain all
+`renewal notice period` into `'renew' & 'notic' & 'period'`, documents must contain all
 three.
 
 For a filter that is correct. For the keyword half of a hybrid search it is quietly
@@ -224,21 +224,21 @@ Config(..., text_match="any")   # default
 Config(..., text_match="all")   # Postgres' native AND, if you want it
 ```
 
-The naive way to do this — rewriting `&` into `|` inside a parsed tsquery — is wrong, and
+The naive way to do this, rewriting `&` into `|` inside a parsed tsquery, is wrong, and
 `pghybrid` does not do it: `'a' & !'b'` becomes `'a' | !'b'`, which matches every document
 that merely lacks `b`. Terms are tokenised and OR-combined individually, so quoted
 `"phrases"` keep working.
 
 `-negation` is not part of the tsquery at all. An exclusion is a statement about the
 answer, not about one half of it, so it becomes a predicate applied inside **both**
-candidate CTEs. Putting it only in the tsquery — which is where the parser already
-understands a leading dash — leaves the vector half free to return the very rows you
+candidate CTEs. Putting it only in the tsquery, which is where the parser already
+understands a leading dash, leaves the vector half free to return the very rows you
 excluded: they drop out of the text candidates, arrive with a vector rank and no text
 rank, and RRF pays the best vector hit `1/(k+1)`, the largest single contribution it can
 award. The row you typed `-pricing` to be rid of comes back near the top.
 
-A query of *only* exclusions has no keyword signal to rank by — `!'pricing'` matches
-almost the whole table and `ts_rank_cd` scores it identically for every row — so the
+A query of *only* exclusions has no keyword signal to rank by, `!'pricing'` matches
+almost the whole table and `ts_rank_cd` scores it identically for every row, so the
 keyword half is dropped rather than inverted, and the exclusion still applies to what
 remains. Without an embedding there is nothing left to rank, and you get a message
 saying so rather than an empty list.
@@ -246,7 +246,7 @@ saying so rather than an empty list.
 ## Find out which stage lost the answer
 
 `explain` decomposes a single result set: both ranks, both raw scores, each signal's
-contribution to the fused score, and — the part nobody else shows — the **near-miss band**,
+contribution to the fused score, and the part nobody else shows: the **near-miss band**,
 the rows ranked just below your cut-off.
 
 ```
@@ -283,7 +283,7 @@ $ pghybrid explain "renewal notice period" --find "sixty days written notice"
   find · "sixty days written notice"
 
     id 2 · Termination for convenience
-    returned at #1 — the query found it
+    returned at #1, the query found it
     #2 by vector (distance 0.03894) · #2 by text (ts_rank_cd 0.30000)
 ```
 
@@ -295,7 +295,7 @@ to infer it from an empty result:
 
     no row in chunks contains that text (searched content, title)
     → the chunk is not in the table, so no amount of ranking will retrieve it
-      — check ingestion and chunking, not the weights
+    , check ingestion and chunking, not the weights
 ```
 
 Or when it is indexed but lost the ranking:
@@ -310,7 +310,7 @@ Or when it is indexed but lost the ranking:
 ```
 
 That single command separates *"the chunk was never indexed"* from *"the chunk was
-outranked"* — two completely different bugs that look identical from the outside.
+outranked"*, two completely different bugs that look identical from the outside.
 
 ## Grade the index you already have
 
@@ -338,30 +338,30 @@ FINDINGS
 
 That is a real run against 20,000 rows behind an `ivfflat` index built with `lists = 200`.
 At the default of one probe the index was returning **12% of the right answers** and
-reporting no error, because an under-tuned vector index does not fail — it silently
+reporting no error, because an under-tuned vector index does not fail. It silently
 returns worse results. Recall is measured against exact search on query vectors sampled
 from the table itself, so it needs no labelled data.
 
 `doctor` reads the real shape of your table and tells you what to change, with the
 arithmetic shown so you can defend the choice:
 
-- the index to create, and why — `lists = rows/1000` up to 1M rows and `sqrt(rows)` above
+- the index to create, and why: `lists = rows/1000` up to 1M rows and `sqrt(rows)` above
   it, a threshold that is very commonly applied on the wrong side
 - **measured** recall@k against exact search, not a guess
 - an `ef_search` / `probes` sweep so you pick your own point on the recall/latency curve
 - queries silently falling back to a sequential scan, naming the filter that caused it
-- filtered recall specifically — approximate indexes collapse under selective filters, which
+- filtered recall specifically. Approximate indexes collapse under selective filters, which
   is where most multi-tenant applications live, and pgvector 0.8's
   [iterative index scans](https://github.com/pgvector/pgvector#iterative-index-scans) are
   the fix
 - **an `id_column` that is not unique.** The fusion joins the two candidate sets on it and
-  then joins back to the table on it, so a repeated id multiplies rows — asking for ten
+  then joins back to the table on it, so a repeated id multiplies rows: asking for ten
   results on a table with five chunks per `doc_id` returns the same document ten times,
   with no error anywhere. A primary key needs no finding; a column with no unique index is
   reported even when no duplicate exists yet, because the first insert makes it wrong
 - **a `tsvector` column that does not match what the config searches**, measured on a random
   sample. This covers a generated column too: it cannot fall behind its own expression, but
-  it can be the wrong expression — a column generated with `'english'` searched by a config
+  it can be the wrong expression. A column generated with `'english'` searched by a config
   that says `'simple'` returned 5 rows against 0 on the same table, with nothing reported
   anywhere. The finding quotes the stored expression, because that is what tells you which
   end to change
@@ -394,21 +394,21 @@ $ python scripts/benchmark.py
   Adding the keyword signal costs +3.32ms at p50 (+159% over vector-only).
 ```
 
-Reproduce it with [`scripts/benchmark.py`](scripts/benchmark.py) — that block is its
+Reproduce it with [`scripts/benchmark.py`](scripts/benchmark.py). That block is its
 output, on an M-series laptop against the Docker Postgres in this repo. Your database is
 not this one, so run it rather than trusting it.
 
 Three things worth knowing before you read those numbers:
 
 - **The corpus is the experiment.** Documents are drawn from a 5,000-word Zipfian
-  vocabulary and the query terms come from the tail, so each matches about 3% of rows —
+  vocabulary and the query terms come from the tail, so each matches about 3% of rows, 
   the selectivity a real search term has. An earlier version of this script drew from a
   36-word list, every term matched nearly every row, and keyword search "measured" 283ms.
   That number described the fixture, not Postgres.
 - **Embeddings are random**, which is the worst case for an approximate index. Real
   embeddings cluster and search faster, so treat the vector figure as an upper bound.
 - **The wall-clock and server columns disagree about keyword-only, and only the server
-  column makes sense.** Server-side the three modes line up exactly as they should —
+  column makes sense.** Server-side the three modes line up exactly as they should, 
   hybrid runs the same keyword CTE plus a vector one, so it costs the most. End to end,
   keyword-only measures *slower* than hybrid, reproducibly, and the difference sits
   outside the server: not in planning, row count, result size, statement size or result
@@ -450,25 +450,25 @@ Three things in it are load-bearing:
 
 | option | default | what it does |
 |---|---|---|
-| `table`, `text_column`, `vector_column` | — | required |
+| `table`, `text_column`, `vector_column` |, | required |
 | `id_column` | `"id"` | primary key |
 | `tsvector_column` | `None` | a stored tsvector column. Omitted, the tsvector is computed inline: no migration needed, but no GIN index either |
-| `language` | `"english"` | text search config — **must match the one the column was built with**, see below |
+| `language` | `"english"` | text search config, **must match the one the column was built with**, see below |
 | `text_match` | `"any"` | `"any"` OR-s terms, `"all"` keeps Postgres' AND |
-| `fusion` | `"rrf"` | or `"weighted"`, kept so `explain` can show you what it does. Its scores are not a similarity: `1 - distance` assumes a distance bounded in `[0,1]`, which only cosine is, so inner product comes out above 1 and L2/L1 can go negative. The *ordering* is correct for every metric — only the scale is meaningless |
+| `fusion` | `"rrf"` | or `"weighted"`, kept so `explain` can show you what it does. Its scores are not a similarity: `1 - distance` assumes a distance bounded in `[0,1]`, which only cosine is, so inner product comes out above 1 and L2/L1 can go negative. The *ordering* is correct for every metric; only the scale is meaningless |
 | `k` | `60` | the RRF constant |
 | `weights` | `1.0 / 1.0` | relative influence of each signal |
-| `candidate_limit` | `50` | rows each signal contributes to the fusion. **This is the whole result set, and it bounds pagination.** Ranks are assigned inside the pool, so it deliberately does not grow with `offset` — a pool that widened per page would reorder every page. Asking for a page past it raises rather than returning an empty page, which would be indistinguishable from reaching the end. Set it to the deepest page you intend to serve and keep it the same across pages |
+| `candidate_limit` | `50` | rows each signal contributes to the fusion. **This is the whole result set, and it bounds pagination.** Ranks are assigned inside the pool, so it deliberately does not grow with `offset`: a pool that widened per page would reorder every page. Asking for a page past it raises rather than returning an empty page, which would be indistinguishable from reaching the end. Set it to the deepest page you intend to serve and keep it the same across pages |
 | `max_query_terms` | `200` | terms taken from one query under `"any"` matching. Repeats are collapsed first; past ~4,200 OR-ed terms Postgres reports a stack depth limit, which is not a useful thing to show someone who pasted a document into a search box |
 | `metric` | `cosine` | `cosine`, `l2`, `inner_product`, `l1` |
 | `vector_type` | `"vector"` | `"halfvec"` halves index size and build time, usually free on recall |
-| `recency` | `None` | `Recency(column, half_life_days)` — exponential decay on the fused score. It **reranks the candidate pool, it does not retrieve**: both signals pick their top `candidate_limit` rows on relevance alone and the decay applies afterwards, so a row published today that no signal ranked highly cannot surface at any half-life. Raise `candidate_limit` if it needs to |
+| `recency` | `None` | `Recency(column, half_life_days)`: exponential decay on the fused score. It **reranks the candidate pool, it does not retrieve**: both signals pick their top `candidate_limit` rows on relevance alone and the decay applies afterwards, so a row published today that no signal ranked highly cannot surface at any half-life. Raise `candidate_limit` if it needs to |
 | `paramstyle` | `"numeric"` | `$1` for asyncpg / node-postgres / raw SQL, `"pyformat"` (`%s`) for psycopg |
 | `filter_columns` | `[]` | columns you may filter on; anything else is rejected rather than interpolated |
-| `extra_columns` | `[]` | columns copied through to each result. None of them, nor `text_column`, may be named like a column the statement already returns — `id`, `score`, `fused_score`, `vector_rank`, `vector_distance`, `vector_contribution`, `text_rank`, `text_score`, `text_contribution`, `recency_factor`, `highlight`. Postgres allows the duplicate name and the driver keeps the table's, so the computed value would vanish silently and take `matched_by` with it. The config refuses it instead |
+| `extra_columns` | `[]` | columns copied through to each result. None of them, nor `text_column`, may be named like a column the statement already returns, `id`, `score`, `fused_score`, `vector_rank`, `vector_distance`, `vector_contribution`, `text_rank`, `text_score`, `text_contribution`, `recency_factor`, `highlight`. Postgres allows the duplicate name and the driver keeps the table's, so the computed value would vanish silently and take `matched_by` with it. The config refuses it instead |
 
 Everything you pass is either a bind parameter or an identifier validated by
-`quote_ident` — except `language`, `query_parser` and `rank_function`, which are parts of
+`quote_ident`, except `language`, `query_parser` and `rank_function`, which are parts of
 the query rather than values and so cannot be bound. Those three are validated against a
 strict shape and a closed set instead, which matters if any of them ever comes from user
 input, as `language` plausibly does in a multilingual app.
@@ -477,24 +477,24 @@ input, as `language` plausibly does in a multilingual app.
 
 The configuration used at query time has to match the one the `tsvector` column was built
 with, and a mismatch does not error. A column built with `'french'` stores `impai` for
-*impayés*; an English-configured query asks for `impayé` and simply does not match it —
+*impayés*; an English-configured query asks for `impayé` and simply does not match it, 
 while `loyer`, which stems identically in both languages, still does. So the search keeps
 working, on fewer of your terms, which is much harder to notice than a failure.
 
 Use your own language (`'french'`, `'german'`, `'spanish'`, …), or `'simple'` for
-identifiers, product codes and mixed-language corpora — `'simple'` does no stemming at
+identifiers, product codes and mixed-language corpora, `'simple'` does no stemming at
 all, so it cannot match a stemmed column either. `pghybrid init` reads the configuration
 off the existing column rather than guessing, and the generated migration always names it
 explicitly instead of relying on a database default that can be changed underneath you.
 
 ## Requirements
 
-- **PostgreSQL 13 to 17** — every version in that range is run in CI. Nothing here is
+- **PostgreSQL 13 to 17**, every version in that range is run in CI. Nothing here is
   known to need anything newer than 12, but 12 is out of support and untested, so it is
   not claimed.
 - **`pgvector` 0.5+** for everything the README shows. HNSW arrived in 0.5.0. Two options
   need more: `vector_type="halfvec"` needs **0.7**, and `doctor`'s iterative-scan advice
-  needs **0.8**. Both are version-gated — asking for halfvec on an older server gets a
+  needs **0.8**. Both are version-gated, asking for halfvec on an older server gets a
   sentence explaining why, rather than `type "halfvec" does not exist`.
 - Python 3.9+ / Node 18+
 
@@ -503,16 +503,16 @@ stock `pgvector/pgvector` images with only `plpgsql` and `vector` installed.
 
 Also covered by tests rather than assumed: one `HybridSearch` shared across threads
 against a connection pool, 400 concurrent `asyncpg` searches, partitioned tables, and
-embeddings too wide to index — `text-embedding-3-large` is 3,072 dimensions and pgvector
+embeddings too wide to index, `text-embedding-3-large` is 3,072 dimensions and pgvector
 indexes at most 2,000, so the migration reaches for a `halfvec` expression index, whose
 limit is 4,000, and says why.
 
 ## Prior art, credited
 
-- **[ParadeDB `pg_search`](https://github.com/paradedb/paradedb)** — real BM25 in Postgres,
+- **[ParadeDB `pg_search`](https://github.com/paradedb/paradedb)**, real BM25 in Postgres,
   and better at ranking than anything built on `ts_rank_cd`. Use it if you can install it.
 - **[VectorChord](https://github.com/tensorchord/VectorChord)** and TigerData's
-  **`pg_textsearch`** — also excellent, also extensions.
+  **`pg_textsearch`**, also excellent, also extensions.
 - **[`pg-hybrid-rrf`](https://github.com/BruceMong/pg-hybrid-rrf)** by Bruce Mong got to the
   scale-mismatch argument first and stated it clearly. The `effectiveWeights` idea in that
   README is a good one and this project's `explain` owes it a debt.
@@ -536,31 +536,31 @@ top = [r for _, r in sorted(zip(scores, results), key=lambda p: -p[0])][:10]
 
 **Use `explain` to choose the width.** Its near-miss band shows the rows just below your
 cut-off, so you can see whether retrieving 50 instead of 10 would actually have given the
-reranker anything to work with — rather than guessing at a number.
+reranker anything to work with, rather than guessing at a number.
 
 ```python
 report = explain(search, query, vector, limit=10, near_miss=40)
 ```
 
 Two things worth knowing before you add one. Reranking `limit` rows cannot improve recall
-at all — it only reorders what retrieval already found, so the width is the whole lever.
+at all, it only reorders what retrieval already found, so the width is the whole lever.
 And a cross-encoder over 50 candidates is typically far slower than the search itself:
 measure the pair, not the parts.
 
 ## Coming from something else
 
-- **[pgai is archived](docs/guides/migrating-from-pgai.md)** — 5,800 stars and no
+- **[pgai is archived](docs/guides/migrating-from-pgai.md)**, 5,800 stars and no
   maintainer since February 2026. Your store table and view are ordinary Postgres and
   keep working; this covers what pghybrid replaces (the search) and what it does not
   (the vectorizer), so you do not migrate away from a feature you actually use.
-- **[Neon removed `pg_search` for new projects](docs/guides/neon-pg-search-removed.md)** —
+- **[Neon removed `pg_search` for new projects](docs/guides/neon-pg-search-removed.md)**, 
   dated 19 March 2026, with the before/after rewrite of a `pg_search` hybrid query.
-- **[Hybrid search on Supabase](docs/guides/supabase.md)** — copy-paste SQL, no extension
+- **[Hybrid search on Supabase](docs/guides/supabase.md)**, copy-paste SQL, no extension
   and no package required.
 
 ## Contributing
 
-Bug reports and pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The test
+Bug reports and pull requests welcome, see [CONTRIBUTING.md](CONTRIBUTING.md). The test
 suite runs against a real Postgres in Docker:
 
 ```bash

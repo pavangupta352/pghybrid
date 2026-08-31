@@ -1,7 +1,7 @@
 """Reproduce the comparison at the top of the README.
 
-Runs the same query three ways against the same corpus — vector only, keyword only,
-and both fused — and prints the three rankings side by side.
+Runs the same query three ways against the same corpus, vector only, keyword only,
+and both fused, and prints the three rankings side by side.
 
     docker compose up -d
     pip install "pghybrid[cli]"
@@ -76,7 +76,7 @@ def main() -> int:
                 marker = " *" if title == PLANTED_TITLE else "  "
                 cells.append((title[:width]).ljust(width) + marker + "  ")
             else:
-                cells.append("—".ljust(width) + "    ")
+                cells.append(", ".ljust(width) + "    ")
         print(f"  {position + 1} " + "".join(cells))
 
     print("\n  * marks the clause that actually answers the question\n")

@@ -6,7 +6,7 @@ map that resolves for the test runner and not for a consumer, a type declaration
 package advertises and does not ship.
 
 One of those was real here. The Python package was annotated throughout, checked itself
-under ``mypy --strict``, and declared the ``Typing :: Typed`` classifier — and shipped no
+under ``mypy --strict``, and declared the ``Typing :: Typed`` classifier, and shipped no
 ``py.typed`` marker, so every consumer's type checker reported every symbol as ``Any``.
 Nothing in the repository could have caught it, because the repository was fine.
 
@@ -41,7 +41,7 @@ def run(
 
 
 def report(name: str, ok: bool, detail: str = "") -> None:
-    print(f"  {'ok  ' if ok else 'FAIL'}  {name}{f' — {detail}' if detail else ''}")
+    print(f"  {'ok  ' if ok else 'FAIL'}  {name}{f', {detail}' if detail else ''}")
     if not ok:
         failures.append(name)
 
@@ -51,7 +51,9 @@ def check_python(workspace: pathlib.Path) -> None:
     dist = workspace / "dist"
     run(["uv", "build", "--wheel", "--out-dir", str(dist)], ROOT / "python")
     wheels = list(dist.glob("*.whl"))
-    report("wheel builds", bool(wheels), wheels[0].name if wheels else "nothing produced")
+    report(
+        "wheel builds", bool(wheels), wheels[0].name if wheels else "nothing produced"
+    )
     if not wheels:
         return
 
@@ -63,7 +65,10 @@ def check_python(workspace: pathlib.Path) -> None:
     venv = workspace / "consumer-venv"
     run(["uv", "venv", "-q", str(venv)], ROOT)
     python = venv / "bin" / "python"
-    run(["uv", "pip", "install", "--python", str(python), "-q", str(wheels[0]), "mypy"], ROOT)
+    run(
+        ["uv", "pip", "install", "--python", str(python), "-q", str(wheels[0]), "mypy"],
+        ROOT,
+    )
 
     consumer = workspace / "consumer.py"
     consumer.write_text(
@@ -82,9 +87,13 @@ def check_python(workspace: pathlib.Path) -> None:
     )
 
     entry = run(
-        [str(python), "-c", "import pghybrid; print(pghybrid.__version__)"], workspace, check=False
+        [str(python), "-c", "import pghybrid; print(pghybrid.__version__)"],
+        workspace,
+        check=False,
     )
-    report("imports from a clean environment", entry.returncode == 0, entry.stdout.strip())
+    report(
+        "imports from a clean environment", entry.returncode == 0, entry.stdout.strip()
+    )
 
     cli = run([str(venv / "bin" / "pghybrid"), "--version"], workspace, check=False)
     report("console script works", cli.returncode == 0, cli.stdout.strip())
@@ -95,7 +104,9 @@ def check_npm(workspace: pathlib.Path) -> None:
     js = ROOT / "js"
     run(["npm", "run", "build"], js)
     packed = (
-        run(["npm", "pack", "--pack-destination", str(workspace)], js).stdout.strip().splitlines()
+        run(["npm", "pack", "--pack-destination", str(workspace)], js)
+        .stdout.strip()
+        .splitlines()
     )
     tarball = workspace / packed[-1]
     report("tarball builds", tarball.exists(), tarball.name)
@@ -104,7 +115,9 @@ def check_npm(workspace: pathlib.Path) -> None:
 
     project = workspace / "consumer-npm"
     project.mkdir()
-    (project / "package.json").write_text(json.dumps({"name": "consumer", "private": True}))
+    (project / "package.json").write_text(
+        json.dumps({"name": "consumer", "private": True})
+    )
     run(["npm", "install", "--silent", str(tarball), "typescript"], project)
 
     (project / "esm.mjs").write_text(
@@ -177,7 +190,10 @@ def main() -> int:
 
     print()
     if failures:
-        print(f"{len(failures)} packaging check(s) failed: {', '.join(failures)}", file=sys.stderr)
+        print(
+            f"{len(failures)} packaging check(s) failed: {', '.join(failures)}",
+            file=sys.stderr,
+        )
         return 1
     print("Both artifacts install and work from empty environments.")
     return 0

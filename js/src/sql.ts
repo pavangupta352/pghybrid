@@ -6,7 +6,7 @@
  * auditable, snapshot-testable, and copy-pasteable by people who never install the
  * package.
  *
- * The generated statement is one query with two candidate CTEs — one per signal —
+ * The generated statement is one query with two candidate CTEs, one per signal, 
  * fused by Reciprocal Rank Fusion. Filters are applied *inside* each CTE so that both
  * signals search the same subset of rows; applying them after the fusion silently
  * destroys recall, which is the single most common way a hand-rolled implementation
@@ -96,8 +96,8 @@ export interface BuiltQuery {
 /**
  * Accumulates bind parameters and renders them in the driver's placeholder style.
  *
- * Every value that originates outside the config — the query text, the embedding,
- * limits, filter values — goes through here, so the generated SQL never contains an
+ * Every value that originates outside the config, the query text, the embedding,
+ * limits, filter values, goes through here, so the generated SQL never contains an
  * interpolated literal.
  *
  * Placeholders are emitted as opaque tokens during assembly and resolved in
@@ -159,8 +159,8 @@ export class Params {
 /**
  * The distance operator for the configured metric, applied to the vector column.
  *
- * The placeholder arrives already cast to `Config.vectorType` — a halfvec column can only
- * be compared with a halfvec — so nothing further is added here. Casting a second time
+ * The placeholder arrives already cast to `Config.vectorType`, a halfvec column can only
+ * be compared with a halfvec, so nothing further is added here. Casting a second time
  * produced `$1::halfvec::halfvec`, which Postgres accepts and which made the generated
  * SQL look like a mistake to anyone reading it.
  */
@@ -172,7 +172,7 @@ function distanceExpr(cfg: ResolvedConfig, vecPlaceholder: string): string {
  * The searchable tsvector: a stored column when configured, computed otherwise.
  *
  * Computing it inline means the package works against an untouched table with no
- * migration at all — slower, but it lets someone try the library before changing their
+ * migration at all, slower, but it lets someone try the library before changing their
  * schema. The migration generator emits the stored form.
  */
 function tsvectorExpr(cfg: ResolvedConfig): string {
@@ -191,8 +191,8 @@ function tsvectorExpr(cfg: ResolvedConfig): string {
  * parser call per term with `||`, so the keyword signal still produces a ranked
  * candidate list when no single document contains every word.
  *
- * Only the positive terms appear here. Exclusions are not part of the keyword signal —
- * they constrain the whole answer — so they are rendered by `exclusionSql` and applied
+ * Only the positive terms appear here. Exclusions are not part of the keyword signal, 
+ * they constrain the whole answer, so they are rendered by `exclusionSql` and applied
  * to both candidate sets.
  */
 function tsqueryExpr(cfg: ResolvedConfig, text: string, params: Params): string {
@@ -220,8 +220,8 @@ function tsqueryExpr(cfg: ResolvedConfig, text: string, params: Params): string 
  * The predicate that removes an excluded term from *both* candidate sets.
  *
  * A leading `-` is a statement about the answer, not about one half of the search.
- * Applying it only to the keyword query — which is what falls out of building the
- * tsquery and stopping there — leaves the vector side free to return the very rows the
+ * Applying it only to the keyword query, which is what falls out of building the
+ * tsquery and stopping there, leaves the vector side free to return the very rows the
  * user asked not to see. It demotes them rather than removing them, and demotion is
  * weak: a row excluded from the text candidates still collects the largest vector
  * contribution RRF can award, `1/(k+1)`, so the document someone typed `-pricing` to be
@@ -238,7 +238,7 @@ function tsqueryExpr(cfg: ResolvedConfig, text: string, params: Params): string 
 /**
  * Quote a query for an error message the same way the Python package does.
  *
- * `repr` and `JSON.stringify` disagree — quote character, and how they escape — so a
+ * `repr` and `JSON.stringify` disagree, quote character, and how they escape, so a
  * message built from either drifts between the two packages for the same mistake. The
  * parity check compares these messages verbatim, so the rule is written out rather than
  * borrowed from a language builtin.
@@ -344,7 +344,7 @@ export interface BuildOptions {
  * what makes a three-way comparison of the two signals honest.
  *
  * `nearMiss` extends the result set past `limit` so callers can show the rows that just
- * missed the cut — the ones that are usually the reason a search "failed".
+ * missed the cut, the ones that are usually the reason a search "failed".
  */
 export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuery {
   const cfg = resolveConfig(config);
@@ -371,7 +371,7 @@ export function buildSearchSql(config: Config, options: BuildOptions): BuiltQuer
   // subtle part: ranks are assigned inside the pool, so a pool that widens as you page
   // deeper is a different ranking on every page. Widening it per page made 8 pages of 10
   // return 71 distinct rows instead of 80, with 9 rows that a single limit=80 query
-  // returns never shown at all — a search UI would print duplicates and drop results.
+  // returns never shown at all, a search UI would print duplicates and drop results.
   if (candidateLimit < limit + nearMiss) {
     candidateLimit = limit + nearMiss;
   }
@@ -560,8 +560,8 @@ function fusionClause(
   fusion: FusionMethod,
 ): [string, string] {
   // Every arithmetic parameter is cast rather than left to the server's type
-  // inference. v.rank is a bigint, so a driver that sends its parameters untyped —
-  // node-postgres does, psycopg does not — leaves Postgres to infer the weight and k
+  // inference. v.rank is a bigint, so a driver that sends its parameters untyped, 
+  // node-postgres does, psycopg does not, leaves Postgres to infer the weight and k
   // from their neighbour and make them bigints too, at which point `1 / (60 + rank)`
   // is integer division: every contribution truncates to zero and the ranking
   // collapses to the id tiebreak. Nothing errors. The cast is in the statement rather
@@ -609,8 +609,8 @@ function fusionClause(
         "           NULL::bigint AS text_rank,\n" +
         "           NULL::double precision AS text_score,\n" +
         // A bare 0.0 is numeric in Postgres, not float8. That made vector_contribution
-        // come back as a Decimal on a text-only query and a float on a hybrid one — the
-        // same field, two types — and cost about 3ms per query in client-side decoding,
+        // come back as a Decimal on a text-only query and a float on a hybrid one, the
+        // same field, two types, and cost about 3ms per query in client-side decoding,
         // which is why keyword-only measured slower than hybrid while doing strictly
         // less work on the server.
         "           0.0::float8 AS text_contribution",

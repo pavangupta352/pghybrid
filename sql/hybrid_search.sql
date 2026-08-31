@@ -1,8 +1,8 @@
--- pghybrid — hybrid search on plain Postgres
+-- pghybrid, hybrid search on plain Postgres
 -- https://github.com/pavangupta352/pghybrid
 --
 -- Vector similarity + full-text search, combined by Reciprocal Rank Fusion.
--- Requires pgvector. Requires nothing else — no pg_search, no VectorChord, no
+-- Requires pgvector. Requires nothing else, no pg_search, no VectorChord, no
 -- Elasticsearch, no vector database. It runs on RDS, Aurora, Cloud SQL, Azure,
 -- Supabase, Neon, Heroku and anything self-hosted, unchanged.
 --
@@ -23,7 +23,7 @@ WITH
 -- Every Postgres query parser combines terms with AND: websearch_to_tsquery
 -- turns 'renewal notice period' into 'renew' & 'notic' & 'period', which
 -- matches only documents containing all three words. As a filter that is
--- correct. As the keyword half of a hybrid search it is quietly destructive —
+-- correct. As the keyword half of a hybrid search it is quietly destructive, 
 -- a four or five word question usually matches nothing at all, the keyword
 -- signal contributes no ranking, and the search silently degrades to
 -- vector-only without reporting that anything went wrong.
@@ -37,7 +37,7 @@ WITH
 -- you need quoted phrases.
 --
 -- If you swap it in for -negation, read this first. websearch reads a leading
--- dash as NOT, so the excluded rows leave the text candidates — and nothing
+-- dash as NOT, so the excluded rows leave the text candidates, and nothing
 -- removes them from the vector candidates below. They come back with a vector
 -- rank and no text rank, and RRF pays the best vector hit 1/(k+1), the largest
 -- single contribution available, so the row you excluded can rank first. To
@@ -113,7 +113,7 @@ text_candidates AS (
 --     score = Σ  weight / (k + rank)
 --
 -- RRF combines RANKS, not scores, and that is the whole point. The obvious
--- alternative — 0.7 * (1 - cosine_distance) + 0.3 * ts_rank_cd — reads as
+-- alternative, 0.7 * (1 - cosine_distance) + 0.3 * ts_rank_cd, reads as
 -- "70% semantic, 30% keyword" and is not. Cosine distance is bounded in [0,1]
 -- and clusters tightly on real embeddings: the top fifty candidates might all
 -- sit between 0.62 and 0.81, a span of 0.19. ts_rank_cd is unbounded and on

@@ -118,7 +118,7 @@ export interface Weights {
  * first at `candidateLimit: 300`.
  *
  * That is deliberate. Retrieving on recency would mean a third candidate set ordered by
- * timestamp — which returns recent rows nobody searched for — or scanning the table,
+ * timestamp, which returns recent rows nobody searched for, or scanning the table,
  * which is what the indexes exist to avoid. If recent-but-unrelated rows genuinely
  * belong in your results, raise `candidateLimit` until the pool is wide enough to
  * contain them, and expect to pay for the wider scan.
@@ -152,7 +152,7 @@ export interface Config {
    * Upper bound on the terms taken from one query under "any" matching.
    *
    * Each term becomes another parser call OR-ed into the statement, and past roughly
-   * 4,200 of them Postgres gives up with "stack depth limit exceeded" — an alarming
+   * 4,200 of them Postgres gives up with "stack depth limit exceeded", an alarming
    * message for what is really "you pasted a document into the search box". Terms beyond
    * the limit are dropped, which costs nothing real: ts_rank_cd over hundreds of terms
    * has stopped discriminating long before this.
@@ -273,7 +273,7 @@ function resolveRecency(recency: Recency | null | undefined): Recency | null {
  * Postgres allows duplicate output names, so the driver keeps whichever comes last: the
  * table's. That is silent and it corrupts the part of the result people rely on most.
  * Listing a column called `text_rank` turned `text_rank=1, matched_by="both"` into
- * `text_rank=null, matched_by="vector"` — the library reporting that the keyword signal
+ * `text_rank=null, matched_by="vector"`, the library reporting that the keyword signal
  * missed rows it had ranked first.
  *
  * `score` happens to fail loudly because ORDER BY references it, but relying on that is
@@ -377,7 +377,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
 /**
  * Text search configuration names are Postgres identifiers, optionally schema-qualified
  * (`pg_catalog.english`). The value is interpolated into the statement rather than bound
- * — a text search configuration is not a value, it is part of the query — so it is
+ *, a text search configuration is not a value, it is part of the query, so it is
  * validated to exactly that shape. Without this a language string could close the quote
  * it sits inside and append arbitrary SQL.
  */

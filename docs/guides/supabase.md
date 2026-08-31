@@ -1,7 +1,7 @@
 # Hybrid search on Supabase, without extensions
 
 Supabase ships `pgvector`, so semantic search is easy. It does not ship `pg_search`, so
-BM25 keyword search is not available — ParadeDB has
+BM25 keyword search is not available. ParadeDB has
 [no Supabase integration](https://supabase.com/partners/paradedb), and the documented path
 is replicating your data into a separate ParadeDB instance, which is a lot of moving parts
 for a search box.
@@ -55,7 +55,7 @@ This is the first thing that goes wrong for most people, and the error message d
 point at the cause.
 
 If your content is not English, change `'english'` to your language, or to `'simple'` for
-no stemming — `'simple'` is usually right for product codes, identifiers and mixed-language
+no stemming, `'simple'` is usually right for product codes, identifiers and mixed-language
 corpora.
 
 ## 3. The search function
@@ -97,7 +97,7 @@ as $$
     -- order by ... limit must see every matching row before the limit applies, so its
     -- cost scales with how many rows match rather than with the limit: 1.19ms against
     -- 0.85ms on 100k rows, widening as the table grows. The inner order by carries a
-    -- tiebreaker, without which the rows chosen at the cut-off are arbitrary — and
+    -- tiebreaker, without which the rows chosen at the cut-off are arbitrary, and
     -- ts_rank_cd ties heavily.
     select id, distance, rank() over (order by distance) as rank
     from (
@@ -137,7 +137,7 @@ $$;
 Two details are load-bearing:
 
 **The join is `full outer`.** An inner join would reduce hybrid search to the intersection
-of the two result sets, so a document that only one signal found could never compete —
+of the two result sets, so a document that only one signal found could never compete, 
 which defeats the purpose.
 
 **Reciprocal Rank Fusion combines ranks, not scores.** The version you will see more often
@@ -175,7 +175,7 @@ exactly as it does for a normal select. That is what you want: do **not** mark i
 `security definer` to "make search work", because it will work for everyone, on every row.
 
 If search is slow for a specific tenant, the cause is usually the filter rather than the
-policy — see below.
+policy, see below.
 
 ## 6. When filtered search returns too few rows
 
@@ -197,7 +197,7 @@ set local hnsw.max_scan_tuples = 20000;
 select * from hybrid_search('...', $1, 10, 500);
 ```
 
-Put the filter **inside both** candidate CTEs if you add one — filtering after the fusion
+Put the filter **inside both** candidate CTEs if you add one, filtering after the fusion
 throws away rows that were already ranked, which is the same bug wearing a different hat.
 
 ## 7. Check that it is actually working
@@ -208,8 +208,8 @@ pghybrid doctor --dsn "$SUPABASE_DB_URL" --table documents
 ```
 
 This reports measured recall@10 against exact search, whether your index is being used at
-all, and what to change. An under-tuned vector index does not error — it silently returns
-worse answers — so the number is worth having.
+all, and what to change. An under-tuned vector index does not error, it silently returns
+worse answers, so the number is worth having.
 
 ---
 

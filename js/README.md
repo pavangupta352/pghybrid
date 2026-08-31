@@ -11,7 +11,7 @@ npm install pghybrid
 ```
 
 Zero runtime dependencies. `pghybrid` generates SQL and hands it to the driver you
-already use — node-postgres, postgres.js, Drizzle, Supabase. It never opens a connection
+already use, node-postgres, postgres.js, Drizzle, Supabase. It never opens a connection
 of its own and never calls an embedding provider.
 
 <!-- check:ts -->

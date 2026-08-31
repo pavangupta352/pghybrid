@@ -1,8 +1,8 @@
 """Measure what the fusion costs, against a table you can rebuild.
 
 The honest question a reader has is not "is this fast" but "what does adding the second
-signal cost me". So this times the same query three ways — vector only, keyword only, and
-both fused — over one corpus, and prints the difference.
+signal cost me". So this times the same query three ways, vector only, keyword only, and
+both fused, over one corpus, and prints the difference.
 
 Everything needed to reproduce the numbers is here. Nothing is quoted in the README that
 this script did not print, and the README says which machine printed it, because a
@@ -33,7 +33,9 @@ import psycopg
 from pghybrid import Config, HybridSearch
 from pghybrid.sql import build_search_sql
 
-DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
+DSN = os.environ.get(
+    "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+)
 TABLE = "benchmark_chunks"
 
 #: Size of the synthetic vocabulary. Corpus realism matters more here than it looks: an
@@ -95,10 +97,18 @@ def build_corpus(
     )
 
     started = time.perf_counter()
-    with connection.cursor().copy(f"COPY {TABLE} (content, embedding) FROM STDIN") as copy:
+    with connection.cursor().copy(
+        f"COPY {TABLE} (content, embedding) FROM STDIN"
+    ) as copy:
         for _ in range(rows):
-            document = random.choices(words, weights=weights, k=random.randint(*WORDS_PER_DOCUMENT))
-            vector = "[" + ",".join(f"{random.uniform(-1, 1):.5f}" for _ in range(dimensions)) + "]"
+            document = random.choices(
+                words, weights=weights, k=random.randint(*WORDS_PER_DOCUMENT)
+            )
+            vector = (
+                "["
+                + ",".join(f"{random.uniform(-1, 1):.5f}" for _ in range(dimensions))
+                + "]"
+            )
             copy.write_row((" ".join(document), vector))
     print(f"  inserted in {time.perf_counter() - started:.1f}s", flush=True)
 
@@ -124,7 +134,7 @@ def time_modes(
 
     Interleaving is the whole point. Run the modes in blocks instead and whichever goes
     last inherits a warm cache from the ones before it: measured that way, hybrid came
-    out *faster* than keyword-only, which is impossible — hybrid runs the same keyword
+    out *faster* than keyword-only, which is impossible, hybrid runs the same keyword
     CTE plus a vector one. The ordering was the finding, not the query.
 
     Interleaving in a *fixed* order is not enough either, for the same reason one step
@@ -163,7 +173,7 @@ def server_times(
 
     Worth reporting alongside the wall-clock figures because the two disagree, and the
     disagreement is informative. Keyword-only measures slower than hybrid end to end
-    while the server says the opposite — which it should, since hybrid runs the same
+    while the server says the opposite, which it should, since hybrid runs the same
     keyword CTE plus a vector one. The difference sits outside the server: not in
     planning, row count, payload size or result types, all of which were checked. Until
     someone explains it, the server column is the one that describes the query.
@@ -193,8 +203,12 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=200)
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--limit", type=int, default=10)
-    parser.add_argument("--keep", action="store_true", help="do not drop the table afterwards")
-    parser.add_argument("--reuse", action="store_true", help="skip building, use what is there")
+    parser.add_argument(
+        "--keep", action="store_true", help="do not drop the table afterwards"
+    )
+    parser.add_argument(
+        "--reuse", action="store_true", help="skip building, use what is there"
+    )
     args = parser.parse_args()
 
     random.seed(11)
@@ -203,16 +217,22 @@ def main() -> int:
         for _ in range(len(QUERY_TERM_RANKS))
     ]
 
-    with psycopg.connect(DSN, autocommit=True, row_factory=psycopg.rows.dict_row) as connection:
+    with psycopg.connect(
+        DSN, autocommit=True, row_factory=psycopg.rows.dict_row
+    ) as connection:
         connection.execute("SET statement_timeout = 0")
         connection.execute("SET maintenance_work_mem = '512MB'")
         words, _ = build_vocabulary(VOCABULARY_SIZE)
         if not args.reuse:
             words, _ = build_corpus(connection, args.rows, args.dimensions)
 
-        queries = [" ".join(words[rank] for rank in ranks) for ranks in QUERY_TERM_RANKS]
+        queries = [
+            " ".join(words[rank] for rank in ranks) for ranks in QUERY_TERM_RANKS
+        ]
 
-        server = connection.execute("SELECT version() AS v").fetchone()["v"].split(",")[0]
+        server = (
+            connection.execute("SELECT version() AS v").fetchone()["v"].split(",")[0]
+        )
         pgvector = connection.execute(
             "SELECT extversion AS v FROM pg_extension WHERE extname = 'vector'"
         ).fetchone()["v"]
@@ -233,7 +253,9 @@ def main() -> int:
             "vector only": lambda i: search.search(
                 None, embedding=vectors[i % len(queries)], limit=args.limit
             ),
-            "keyword only": lambda i: search.search(queries[i % len(queries)], limit=args.limit),
+            "keyword only": lambda i: search.search(
+                queries[i % len(queries)], limit=args.limit
+            ),
             "hybrid (both)": lambda i: search.search(
                 queries[i % len(queries)],
                 embedding=vectors[i % len(queries)],

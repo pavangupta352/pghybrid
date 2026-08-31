@@ -7,7 +7,7 @@
  * types, so importing this module pulls in nothing.
  *
  * Every Postgres driver in JavaScript uses `$1` placeholders, so unlike the Python side
- * there is no style to get wrong here — but the helpers set it explicitly anyway, in
+ * there is no style to get wrong here, but the helpers set it explicitly anyway, in
  * case a config arrives with `paramStyle: "pyformat"` copied from a Python example.
  *
  * ```ts
@@ -95,7 +95,7 @@ export function forPostgresJs(sql: PostgresJsLike, config: Config): HybridSearch
  * Drizzle.
  *
  * Goes through `$client`, the driver Drizzle was constructed with, because Drizzle's own
- * `execute` takes a query object rather than a statement and a parameter list — and
+ * `execute` takes a query object rather than a statement and a parameter list, and
  * building one from raw SQL loses the bound parameters, which is the wrong trade.
  */
 export function drizzleExecutor(db: DrizzleLike): Executor {
@@ -133,10 +133,10 @@ export function forKysely(db: KyselyLike, config: Config): HybridSearch {
 }
 
 
-// Prisma is deliberately absent. Its executor is one line —
+// Prisma is deliberately absent. Its executor is one line, 
 //
 //   (sql, params) => prisma.$queryRawUnsafe(sql, ...params)
 //
-// — and the README shows it, but nothing here ships without having been run against a
+//, and the README shows it, but nothing here ships without having been run against a
 // real server, and the Prisma CLI in use while this was written could not generate a
 // client to run it with. An adapter that has never executed is a claim, not a feature.

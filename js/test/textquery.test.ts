@@ -4,7 +4,7 @@
  * Two layers are covered here. The first is `parseQuery`, which splits a search box
  * into terms. The second is what the SQL builder does with those terms, because the
  * tokenising only matters insofar as it produces a tsquery that ranks the way a person
- * expects — and because the most damaging bug in this area is invisible at the parsed
+ * expects, and because the most damaging bug in this area is invisible at the parsed
  * level and only appears in the generated expression.
  */
 
@@ -210,7 +210,7 @@ describe("the tsquery the builder generates", () => {
     // that is where the parser already understands it. The vector half then never hears
     // about it and happily returns the excluded rows: they drop out of the text
     // candidates, so they arrive with a vector rank and no text rank, and RRF pays the
-    // best vector hit 1/(k+1) — the largest single contribution it can award.
+    // best vector hit 1/(k+1), the largest single contribution it can award.
     const { sql, params } = buildSearchSql(makeConfig({ textMatch: "any" }), {
       embedding: [0.1, 0.2],
       text: "renewal notice -pricing",
@@ -281,7 +281,7 @@ describe("the tsquery the builder generates", () => {
   it("has no keyword signal for a query of only exclusions", () => {
     // Handing "-pricing" to the parser yields !'pricing', which matches almost the whole
     // table. ts_rank_cd scores a pure negation identically for every row, so the keyword
-    // half would contribute an arbitrary order — at full weight — that reshuffles the
+    // half would contribute an arbitrary order, at full weight, that reshuffles the
     // vector results for no reason. The exclusion still applies to what remains.
     const { sql, params } = buildSearchSql(makeConfig({ textMatch: "any" }), {
       embedding: [0.1, 0.2],

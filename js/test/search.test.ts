@@ -2,8 +2,8 @@
  * Unit tests for the runtime wrapper.
  *
  * No database here either: the executor is a function, so everything the client does
- * around the driver — building the statement, shaping the rows, tolerating the NULLs
- * that a single-signal match leaves behind — is testable without one.
+ * around the driver, building the statement, shaping the rows, tolerating the NULLs
+ * that a single-signal match leaves behind, is testable without one.
  */
 
 import { describe, expect, it } from "vitest";
@@ -144,7 +144,7 @@ describe("row shaping", () => {
 
   it("hands the table's own columns back untouched", () => {
     // The caller usually needs the title next to the score, so passthrough columns are
-    // kept rather than dropped — and kept out of the ranking fields so the two can
+    // kept rather than dropped, and kept out of the ranking fields so the two can
     // never collide.
     const result = resultFromRow(hybridRow());
     expect(result.row).toEqual({

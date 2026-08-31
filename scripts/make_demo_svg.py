@@ -8,8 +8,8 @@ An SVG rather than a GIF: it stays sharp on a retina screen, it is a fraction of
 size, it diffs as text in review, and it needs no recorder installed.
 
 It is deliberately static. A staged fade-in reads better, but it has to start from
-opacity 0, and anything that does not run CSS animations — some Markdown renderers,
-image proxies, a PDF export, the GitHub mobile app — then shows an empty terminal
+opacity 0, and anything that does not run CSS animations, some Markdown renderers,
+image proxies, a PDF export, the GitHub mobile app, then shows an empty terminal
 instead of the argument. The first frame has to be the whole point.
 
     python scripts/make_demo_svg.py
@@ -27,7 +27,9 @@ import psycopg
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "assets" / "demo.svg"
-DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
+DSN = os.environ.get(
+    "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+)
 
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -88,7 +90,8 @@ def collect() -> dict:
         "query": DEMO_QUERY,
         "answer": PLANTED_TITLE,
         "columns": {
-            name: [str(r.get("title")) for r in results] for name, results in columns.items()
+            name: [str(r.get("title")) for r in results]
+            for name, results in columns.items()
         },
     }
 
@@ -141,13 +144,22 @@ def build(data: dict) -> str:
     parts.append(f'  <rect width="{WIDTH}" height="34" rx="10" fill="{CHROME}"/>')
     parts.append(f'  <rect y="24" width="{WIDTH}" height="10" fill="{CHROME}"/>')
     for index, colour in enumerate(("#ff5f57", "#febc2e", "#28c840")):
-        parts.append(f'  <circle cx="{22 + index * 19}" cy="17" r="6" fill="{colour}"/>')
+        parts.append(
+            f'  <circle cx="{22 + index * 19}" cy="17" r="6" fill="{colour}"/>'
+        )
     parts.append(text(WIDTH / 2, 22, "pghybrid", fill=DIM, size=12, anchor="middle"))
 
     y = 62
     parts.append(text(24, y, "$", fill=GREEN, size=13, weight="600"))
     parts.append(
-        text(40, y, "pghybrid explain " + f'"{data["query"]}"', fill=BRIGHT, size=13, cls="")
+        text(
+            40,
+            y,
+            "pghybrid explain " + f'"{data["query"]}"',
+            fill=BRIGHT,
+            size=13,
+            cls="",
+        )
     )
 
     y += 30
@@ -189,7 +201,7 @@ def build(data: dict) -> str:
         parts.append(text(COL_X[0], row_y, str(row + 1), fill=DIM, size=12))
         for index, name in enumerate(names):
             titles = columns[name]
-            value = titles[row] if row < len(titles) else "—"
+            value = titles[row] if row < len(titles) else ", "
             is_answer = value == answer
             is_hybrid = name == "pghybrid"
 
@@ -202,7 +214,15 @@ def build(data: dict) -> str:
 
             label = value
             parts.append(
-                text(COL_X[index + 1], row_y, label, fill=fill, size=12, weight=weight, cls=cls)
+                text(
+                    COL_X[index + 1],
+                    row_y,
+                    label,
+                    fill=fill,
+                    size=12,
+                    weight=weight,
+                    cls=cls,
+                )
             )
             if is_answer:
                 parts.append(

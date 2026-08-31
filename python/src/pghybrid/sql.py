@@ -5,7 +5,7 @@ and the call arguments. Nothing here touches a database, which is what makes the
 generated SQL auditable, snapshot-testable, and copy-pasteable by people who never
 install the package.
 
-The generated statement is one query with two candidate CTEs — one per signal —
+The generated statement is one query with two candidate CTEs, one per signal,
 fused by Reciprocal Rank Fusion. Filters are applied *inside* each CTE so that both
 signals search the same subset of rows; applying them after the fusion silently
 destroys recall, which is the single most common way a hand-rolled implementation
@@ -70,8 +70,8 @@ _TOKEN_RE = re.compile("\x01p(\\d+)\x01")
 class Params:
     """Accumulates bind parameters and renders them in the driver's placeholder style.
 
-    Every value that originates outside the config — the query text, the embedding,
-    limits, filter values — goes through here, so the generated SQL never contains an
+    Every value that originates outside the config, the query text, the embedding,
+    limits, filter values, goes through here, so the generated SQL never contains an
     interpolated literal.
 
     Placeholders are emitted as opaque tokens during assembly and resolved in
@@ -126,8 +126,8 @@ class Params:
 def _distance_expr(cfg: Config, vec_placeholder: str) -> str:
     """The distance operator for the configured metric, applied to the vector column.
 
-    The placeholder arrives already cast to ``Config.vector_type`` — a halfvec column can
-    only be compared with a halfvec — so nothing further is added here. Casting a second
+    The placeholder arrives already cast to ``Config.vector_type``, a halfvec column can
+    only be compared with a halfvec, so nothing further is added here. Casting a second
     time produced ``$1::halfvec::halfvec``, which Postgres accepts and which made the
     generated SQL look like a mistake to anyone reading it.
     """
@@ -138,7 +138,7 @@ def _tsvector_expr(cfg: Config) -> str:
     """The searchable tsvector: a stored column when configured, computed otherwise.
 
     Computing it inline means the package works against an untouched table with no
-    migration at all — slower, but it lets someone try the library before changing
+    migration at all, slower, but it lets someone try the library before changing
     their schema. The migration generator emits the stored form.
     """
     if cfg.tsvector_column:
@@ -155,9 +155,9 @@ def _tsquery_expr(cfg: Config, text: str, params: Params) -> str:
     combines one parser call per term with ``||``, so the keyword signal still
     produces a ranked candidate list when no single document contains every word.
 
-    Only the positive terms appear here. Exclusions are not part of the keyword signal
-    — they constrain the whole answer — so they are rendered by :func:`_exclusion_sql`
-    and applied to both candidate sets.
+    Only the positive terms appear here. Exclusions are not part of the keyword signal;
+    they constrain the whole answer, so they are rendered by :func:`_exclusion_sql` and
+    applied to both candidate sets.
     """
     parser = cfg.query_parser
     language = cfg.language
@@ -183,7 +183,7 @@ def _tsquery_expr(cfg: Config, text: str, params: Params) -> str:
 def _show_query(text: str) -> str:
     """Quote a query for an error message the same way the TypeScript package does.
 
-    ``repr`` and ``JSON.stringify`` disagree — quote character, and how they escape — so
+    ``repr`` and ``JSON.stringify`` disagree, quote character, and how they escape, so
     a message built from either drifts between the two packages for the same mistake.
     The parity check compares these messages verbatim, so the rule is written out rather
     than borrowed from a language builtin.
@@ -195,8 +195,8 @@ def _exclusion_sql(cfg: Config, negatives: list[str], params: Params) -> str:
     """The predicate that removes an excluded term from *both* candidate sets.
 
     A leading ``-`` is a statement about the answer, not about one half of the search.
-    Applying it only to the keyword query — which is what falls out of building the
-    tsquery and stopping there — leaves the vector side free to return the very rows the
+    Applying it only to the keyword query, which is what falls out of building the
+    tsquery and stopping there, leaves the vector side free to return the very rows the
     user asked not to see. It demotes them rather than removing them, and demotion is
     weak: a row excluded from the text candidates still collects the largest vector
     contribution RRF can award, ``1/(k+1)``, so the document someone typed ``-pricing``
@@ -289,7 +289,7 @@ def build_search_sql(
     columns, which is what makes the three-way comparison in ``explain`` honest.
 
     ``near_miss`` extends the result set past ``limit`` so callers can show the rows
-    that just missed the cut — the ones that are usually the reason a search "failed".
+    that just missed the cut, the ones that are usually the reason a search "failed".
     """
     if embedding is None and text is None:
         raise ValueError("at least one of embedding or text must be provided")
@@ -305,7 +305,7 @@ def build_search_sql(
     # subtle part: ranks are assigned inside the pool, so a pool that widens as you page
     # deeper is a different ranking on every page. Widening it per page made 8 pages of
     # 10 return 71 distinct rows instead of 80, with 9 rows that a single limit=80 query
-    # returns never shown at all — a search UI would print duplicates and drop results.
+    # returns never shown at all, a search UI would print duplicates and drop results.
     if candidate_limit < limit + near_miss:
         candidate_limit = limit + near_miss
 
@@ -372,12 +372,12 @@ def build_search_sql(
         # the fifty rows that survive is the same answer for less work: 1.19ms against
         # 0.85ms on 100k rows, and the gap widens as the table grows.
         #
-        # (EXPLAIN ANALYZE reports a far larger difference — 17.6ms against 0.8ms — but
+        # (EXPLAIN ANALYZE reports a far larger difference, 17.6ms against 0.8ms, but
         # that is mostly its own per-node instrumentation, which is expensive precisely
         # when a window processes every row. The figures above are wall-clock.)
         #
         # The inner ORDER BY carries a tiebreaker, without which the rows chosen at the
-        # cut-off are arbitrary — and ties are not rare. ts_rank_cd gave only 3 distinct
+        # cut-off are arbitrary, and ties are not rare. ts_rank_cd gave only 3 distinct
         # values across 3,399 matching rows in the benchmark corpus, so which fifty came
         # back could change between identical runs.
         ctes.append(
@@ -492,8 +492,8 @@ def _fusion_clause(
     result sets, which is a different and much worse product.
     """
     # Every arithmetic parameter is cast explicitly rather than left to the server's
-    # type inference. A driver that sends the weight and k as integers — which any
-    # JavaScript driver must, because 1.0 and 1 are the same value there — makes
+    # type inference. A driver that sends the weight and k as integers, which any
+    # JavaScript driver must, because 1.0 and 1 are the same value there, makes
     # `1 / (60 + rank)` integer division, so every contribution truncates to zero and
     # the ranking silently collapses to whatever the tiebreaker is. The failure is
     # invisible: the query succeeds and returns rows, all scored 0.
@@ -534,7 +534,7 @@ def _fusion_clause(
             "           NULL::double precision AS text_score,\n"
             # A bare 0.0 is numeric in Postgres, not float8. That made
             # vector_contribution come back as a Decimal on a text-only query and a
-            # float on a hybrid one — the same field, two Python types, and
+            # float on a hybrid one, the same field, two Python types, and
             # Decimal + float raises TypeError. It also cost about 3ms per query in
             # client-side decoding, which is why keyword-only measured slower than
             # hybrid while doing strictly less work on the server.

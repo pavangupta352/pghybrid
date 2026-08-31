@@ -8,7 +8,7 @@ If you are running it, nothing broke today. This is about what to do before some
 
 ## First, the good news: your data is ordinary Postgres
 
-pgai's `ai.destination_table()` created two objects — a store table holding the chunks and
+pgai's `ai.destination_table()` created two objects, a store table holding the chunks and
 embeddings, and a view joining that store back to your source table:
 
 ```sql
@@ -33,7 +33,7 @@ pgai did two quite different things.
 
 | pgai did | pghybrid |
 |---|---|
-| **Embedded your rows automatically** — a worker watched the source table, chunked, called the model, kept the store fresh | ❌ **No.** Not even slightly. |
+| **Embedded your rows automatically**, a worker watched the source table, chunked, called the model, kept the store fresh | ❌ **No.** Not even slightly. |
 | **Embedded your query** at search time via `ai.ollama_embed(...)` / `ai.openai_embed(...)` | ❌ No. You pass a vector in. |
 | **Chunked** your text | ❌ No. |
 | **Ran the search** over the resulting embeddings | ✅ Yes, and adds keyword search fused with it. |
@@ -55,7 +55,7 @@ pghybrid init --dsn "$DATABASE_URL" --table blog_contents_embeddings
 ```
 
 `init` reads the store table, finds the `chunk` and `embedding` columns on its own, and
-prints the migration — a stored `tsvector` for the keyword half, a GIN index on it, and an
+prints the migration, a stored `tsvector` for the keyword half, a GIN index on it, and an
 HNSW index sized for the row count you actually have. Nothing else changes.
 
 The view works too:
@@ -134,8 +134,8 @@ pghybrid doctor --dsn "$DATABASE_URL" --table blog_contents_embeddings
 ```
 
 That reports recall@k measured against exact search, whether the index is being used under
-your filters, and what to change. An under-tuned vector index does not error — it quietly
-returns worse answers — which is exactly the failure mode to check for after the thing that
+your filters, and what to change. An under-tuned vector index does not error, it quietly
+returns worse answers, which is exactly the failure mode to check for after the thing that
 was tuning it stops being maintained.
 
 ## If you keep the vectorizer

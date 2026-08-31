@@ -1,7 +1,7 @@
 """One-line wiring for the drivers people actually have.
 
 :class:`~pghybrid.search.HybridSearch` takes an ``execute`` callable, which keeps the
-package free of driver dependencies but leaves every user writing the same lambda — and
+package free of driver dependencies but leaves every user writing the same lambda, and
 choosing a placeholder style, which is the single thing most likely to be got wrong.
 ``$1`` and ``%s`` are not interchangeable, and picking the wrong one fails with a message
 about parameter counts that says nothing about the cause.
@@ -40,9 +40,9 @@ __all__ = [
 def _as_mappings(cursor: Any) -> list[dict[str, Any]]:
     """Read a DBAPI cursor as dicts, whatever row factory it was configured with.
 
-    A connection may already be returning mappings — ``psycopg.rows.dict_row`` is common
-    — and zipping column names against one of those pairs the names with the dict's keys
-    instead of its values, so every column comes back holding its own name.
+    A connection may already be returning mappings (``psycopg.rows.dict_row`` is
+    common), and zipping column names against one of those pairs the names with the
+    dict's keys instead of its values, so every column comes back holding its own name.
     """
     if cursor.description is None:
         return []
@@ -131,8 +131,8 @@ def sqlalchemy_executor(bind: Any) -> Any:
     than ``text()``. ``text()`` would have to bind ``:p0`` style parameters, and in
     Postgres ``:`` is ambiguous with the cast operator: SQLAlchemy silently declines to
     bind ``:p0`` in ``:p0::vector`` and the server then reports a syntax error at a colon
-    that looks nothing like the cause. The alternative — emitting ``CAST(x AS vector)``
-    throughout — would make the generated SQL less idiomatic for every user in order to
+    that looks nothing like the cause. The alternative, emitting ``CAST(x AS vector)``
+    throughout, would make the generated SQL less idiomatic for every user in order to
     suit one ORM.
     """
 
@@ -167,7 +167,7 @@ def django_executor(using: str = "default") -> Any:
 
     Django's Postgres backend is psycopg, so the placeholder style is ``%s`` and the
     connection is taken from ``django.db.connections`` at call time rather than at
-    import time — the alias may not be configured yet when the module is imported.
+    import time, the alias may not be configured yet when the module is imported.
     """
 
     def execute(sql: str, params: list[Any]) -> list[dict[str, Any]]:

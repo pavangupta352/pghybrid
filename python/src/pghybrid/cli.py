@@ -119,8 +119,8 @@ def _resolve_config(connection: Any, args: argparse.Namespace) -> Config:
 
     # Collected and applied through dataclasses.replace rather than set one at a time.
     # Assigning to a field of an existing Config skips __post_init__, and __post_init__
-    # is where the fields that get interpolated into the statement — language above all
-    # — are validated. Setting them directly let a hostile --language through.
+    # is where the fields that get interpolated into the statement, language above all
+    # , are validated. Setting them directly let a hostile --language through.
     overrides: dict[str, Any] = {}
     for attribute in (
         "text_column",
@@ -168,8 +168,8 @@ def _print_missing_signal(embedding: Optional[list[float]], query: str = "") -> 
     """Say when only one of the two signals actually ran.
 
     Both directions are worth reporting. A search that silently drops half of itself
-    looks like a relevance problem, and the two causes — no embedding, or a query with
-    nothing to search *for* — are fixed in completely different places.
+    looks like a relevance problem, and the two causes, no embedding, or a query with
+    nothing to search *for*, are fixed in completely different places.
     """
     if embedding is None:
         print(
@@ -205,7 +205,7 @@ def command_init(args: argparse.Namespace) -> int:
             print()
 
     if optional:
-        print("OPTIONAL — alternatives and tuning, not applied by --apply")
+        print("OPTIONAL, alternatives and tuning, not applied by --apply")
         print("-" * 78)
         for statement in optional:
             print(statement.to_text(concurrent=args.concurrent))
@@ -230,7 +230,7 @@ def command_init(args: argparse.Namespace) -> int:
             # Required work that cannot be written as a statement, because the value is
             # the caller's to supply. Sending it anyway is what this used to do: Postgres
             # accepts a comment as an empty command, so it printed ok and changed nothing.
-            print("\nstill to do by hand — these could not be applied:")
+            print("\nstill to do by hand, these could not be applied:")
             for statement in manual:
                 print(f"  !!  {statement.sql.strip().lstrip('- ')}")
                 print(f"      {statement.reason}")
@@ -329,7 +329,7 @@ def command_sql(args: argparse.Namespace) -> int:
     """Print the generated statement without touching a database.
 
     Useful for reading it, for pasting it somewhere else, and for stopping using
-    this package entirely — all of which are supported.
+    this package entirely, all of which are supported.
     """
     config = Config(
         table=args.table,
@@ -382,10 +382,10 @@ def build_parser() -> argparse.ArgumentParser:
         )
         sub.add_argument("--fusion", choices=["rrf", "weighted"])
         sub.add_argument("--text-match", choices=["any", "all"], dest="text_match")
-        sub.add_argument("--weights", help="vector,text — e.g. 0.7,0.3")
+        sub.add_argument("--weights", help="vector,text, e.g. 0.7,0.3")
         sub.add_argument("--k", type=int, help="the RRF constant (default 60)")
         sub.add_argument("--candidates", type=int, help="candidates per signal")
-        sub.add_argument("--recency", help="column,half_life_days — e.g. created_at,90")
+        sub.add_argument("--recency", help="column,half_life_days, e.g. created_at,90")
         sub.add_argument("--label", help="column to show in the output")
 
     init = subparsers.add_parser("init", help="inspect a table and write the migration")
@@ -451,7 +451,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         return int(args.func(args) or 0)
     except (CliError, TableNotFound, IdentifierError) as exc:
-        # These already carry a message written for a person — a traceback on top of
+        # These already carry a message written for a person, a traceback on top of
         # "relation 'nope' does not exist" only buries it.
         print(f"{PROGRAM}: {exc}", file=sys.stderr)
         return 2

@@ -9,7 +9,7 @@
  *
  * A drift here does not look like a crash. It looks like "the JavaScript results are a
  * bit worse than the Python ones", months later, with no way to tell which half is
- * wrong — so the fixtures deliberately cover the branches that are easy to get subtly
+ * wrong, so the fixtures deliberately cover the branches that are easy to get subtly
  * different: placeholder numbering, the float formatting inside a pgvector literal,
  * operator precedence in a negated tsquery, and the order values are bound in.
  *
@@ -122,8 +122,8 @@ const FIXTURES = [
   ),
 
   // Text matching. "all" is one parser call over the raw string; "any" is one call per
-  // term, OR-ed. Exclusions are not in the tsquery at all — they are a predicate on both
-  // candidate CTEs — so these fixtures pin where they land.
+  // term, OR-ed. Exclusions are not in the tsquery at all, they are a predicate on both
+  // candidate CTEs, so these fixtures pin where they land.
   fixture("text-match-all", { textMatch: "all" }, { text: "renewal notice -pricing", limit: 5 }),
   fixture(
     "text-match-all-phrase",
@@ -466,7 +466,7 @@ function renderWithPython(fixtures) {
  * Build the TypeScript package if the compiled output is missing or stale.
  *
  * The parity job installs dependencies but does not build, and importing a stale dist
- * would compare the previous commit's TypeScript against this commit's Python — a
+ * would compare the previous commit's TypeScript against this commit's Python, a
  * green check that means nothing.
  */
 function ensureBuilt() {

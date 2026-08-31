@@ -3,7 +3,7 @@
  *
  * Every test here is a pure function of a config and some arguments: no connection, no
  * fixtures with side effects, no network. That is the whole point of keeping SQL
- * generation separate from execution — the statement can be asserted on directly, and
+ * generation separate from execution, the statement can be asserted on directly, and
  * a regression in the query shape is caught before anyone has to notice bad search
  * results.
  *
@@ -342,7 +342,7 @@ describe("the three query shapes", () => {
 describe("fusion", () => {
   it("fuses with a full outer join, never an inner join", () => {
     // That is the single most damaging regression this file can catch: the query still
-    // runs, still returns rows, and still looks plausible — it just quietly drops every
+    // runs, still returns rows, and still looks plausible, it just quietly drops every
     // document that only one of the two signals found, which is most of the ones
     // hybrid search exists to surface.
     const { sql } = buildSearchSql(config, { embedding: [0.1], text: "renewal", limit: 5 });
@@ -369,8 +369,8 @@ describe("fusion", () => {
 
   it("casts every arithmetic parameter so the fusion cannot become integer division", () => {
     // The most expensive kind of bug this file can catch, because nothing errors.
-    // v.rank is a bigint. A driver that sends its parameters untyped — node-postgres
-    // does, psycopg does not — leaves Postgres to infer the weight and k from their
+    // v.rank is a bigint. A driver that sends its parameters untyped, node-postgres
+    // does, psycopg does not, leaves Postgres to infer the weight and k from their
     // neighbour, so they become bigints too and `1 / (60 + 2)` truncates to 0. Every
     // score comes back as exactly zero and the results are ordered by the id
     // tiebreaker, which looks like a ranking problem rather than a typing one.
@@ -661,7 +661,7 @@ describe("vector type and metric", () => {
     ["manhattan", "<+>", "vector_l1_ops"],
   ] as const)("maps the metric %s to its operator", (metric, operator, ops) => {
     // Using the wrong operator ranks by the wrong distance and skips the index. The
-    // failure is silent — results come back, they are just subtly worse — so the
+    // failure is silent, results come back, they are just subtly worse, so the
     // mapping is pinned here rather than trusted.
     const cfg = makeConfig({ metric });
     const { sql } = buildSearchSql(cfg, { embedding: [0.5], limit: 5 });
@@ -789,7 +789,7 @@ describe("limits and the candidate budget", () => {
   it("refuses a column named like one the statement computes", () => {
     // Postgres allows two output columns with the same name and the driver keeps the
     // last, which is the table's. Listing a column called text_rank turned
-    // text_rank=1, matched_by="both" into text_rank=null, matched_by="vector" — the
+    // text_rank=1, matched_by="both" into text_rank=null, matched_by="vector", the
     // library reporting that the keyword signal missed rows it had ranked first.
     expect(() =>
       buildSearchSql(makeConfig({ extraColumns: ["text_rank"] }), {
@@ -978,7 +978,7 @@ describe("argument validation", () => {
     // to be, which made a config built from user input an injection surface unlike every
     // other field.
     // A Config here is a plain object, so validation happens in resolveConfig, which
-    // buildSearchSql calls — before any SQL exists either way.
+    // buildSearchSql calls, before any SQL exists either way.
     expect(() =>
       buildSearchSql(makeConfig({ language: "english', 'injected" }), {
         text: "renewal",
@@ -1045,8 +1045,8 @@ describe("the golden snapshot", () => {
     // name, and the difference would only ever surface as "the JS results are a bit
     // worse", which nobody can debug.
     //
-    // A diff here is either a deliberate change to the query — made in both packages,
-    // with the Python golden file regenerated — or a bug that just escaped every other
+    // A diff here is either a deliberate change to the query, made in both packages,
+    // with the Python golden file regenerated, or a bug that just escaped every other
     // test in this file.
     const { sql } = canonicalQuery();
     expect(sql + "\n").toBe(readFileSync(GOLDEN, "utf8"));

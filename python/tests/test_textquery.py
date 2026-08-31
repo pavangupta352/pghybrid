@@ -3,7 +3,7 @@
 Two layers are covered here. The first is ``parse_query``, which splits a search box
 into terms. The second is what the SQL builder does with those terms, because the
 tokenising only matters insofar as it produces a tsquery that ranks the way a person
-expects — and because the most damaging bug in this area is invisible at the
+expects, and because the most damaging bug in this area is invisible at the
 ``ParsedQuery`` level and only appears in the generated expression.
 """
 
@@ -208,7 +208,7 @@ def test_an_exclusion_constrains_both_signals_not_just_the_keyword_one(make_conf
     The tempting implementation puts the exclusion in the tsquery and stops, because that
     is where the parser already understands it. The vector half then never hears about it
     and happily returns the excluded rows: they drop out of the text candidates, so they
-    arrive with a vector rank and no text rank, and RRF pays the top vector hit 1/(k+1) —
+    arrive with a vector rank and no text rank, and RRF pays the top vector hit 1/(k+1),
     the largest single contribution it can award. The row someone typed "-pricing" to be
     rid of comes back near the top, ranked by half a search.
 
@@ -288,7 +288,7 @@ def test_a_query_of_only_exclusions_has_no_keyword_signal(make_config: Any) -> N
 
     Handing "-pricing" to the parser yields ``!'pricing'``, which matches almost the whole
     table. ts_rank_cd scores a pure negation identically for every row, so the keyword
-    half would contribute an arbitrary order — at full weight — that reshuffles the vector
+    half would contribute an arbitrary order, at full weight, that reshuffles the vector
     results for no reason. The exclusion still applies to what remains.
     """
     cfg = make_config(text_match="any")
@@ -335,7 +335,7 @@ def test_quoted_phrase_becomes_one_parser_call_but_loses_its_adjacency(
 
     The phrase survives as a single term and a single bound value, so it is never split
     across two OR-ed calls. But parse_query strips the quotes, and
-    ``websearch_to_tsquery('english', 'notice period')`` is ``'notic' & 'period'`` —
+    ``websearch_to_tsquery('english', 'notice period')`` is ``'notic' & 'period'``,
     an AND, not the ``'notic' <-> 'period'`` adjacency the user asked for by quoting.
     Under text_match="all" the whole raw string reaches the parser and the phrase does
     work, so the two modes disagree about what quotes mean.

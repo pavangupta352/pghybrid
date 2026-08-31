@@ -2,7 +2,7 @@
 # Run locally exactly what CI runs, in the same order, and stop at the first failure.
 #
 # This exists because a change once passed `npm test` and `npm run lint` locally and then
-# failed CI on `npm run typecheck` — vitest does not typecheck, so a type error in a test
+# failed CI on `npm run typecheck`, vitest does not typecheck, so a type error in a test
 # file is invisible to the test run. Any gap between "what I ran" and "what CI runs" ends
 # up being discovered by CI, which is slower and noisier than discovering it here.
 #

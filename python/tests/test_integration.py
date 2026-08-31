@@ -164,7 +164,7 @@ def test_an_exclusion_holds_when_the_vector_signal_is_running(connection, search
     Keyword-only search never exposed the bug, because the tsquery is exactly where a
     parser already understands a leading dash. Turn the vector half on and the excluded
     row comes back: it is missing from the text candidates, so it arrives with a vector
-    rank and no text rank, and RRF pays the best vector hit 1/(k+1) — the largest single
+    rank and no text rank, and RRF pays the best vector hit 1/(k+1), the largest single
     contribution available. It ranked fourth of five here.
 
     The embedding is the excluded row's own, which is the honest version of the test: a
@@ -345,13 +345,13 @@ def test_paging_returns_each_row_once_and_matches_one_big_query(connection):
     after it has to be refused.
 
     What this does *not* catch, and it is worth being precise about, is the widen-per-page
-    bug itself — inside the legal range a pool that widens with the offset and a fixed one
+    bug itself, inside the legal range a pool that widens with the offset and a fixed one
     are the same number, so they agree here. The test that distinguishes them is
     test_a_page_outside_the_candidate_pool_is_an_error, because the two designs differ
     only past the boundary. This one pins the user-visible contract: pages tile a single
     ranking without duplicates or gaps.
 
-    The corpus deliberately decorrelates the two signals — random angles, random words —
+    The corpus deliberately decorrelates the two signals, random angles, random words,
     because a row entering the text candidates late is what reorders a fused ranking, and
     a corpus where the signals agree would hide any such reordering.
     """
@@ -420,7 +420,7 @@ def test_a_column_named_like_a_computed_one_is_refused(connection):
 
     Postgres allows two output columns with the same name and the driver keeps the last,
     which is the table's. Before this was refused, listing a column called text_rank
-    turned text_rank=1, matched_by="both" into text_rank=None, matched_by="vector" — the
+    turned text_rank=1, matched_by="both" into text_rank=None, matched_by="vector", the
     same query on the same data, now reporting that the keyword signal missed rows it had
     ranked first. matched_by is the reason to use this library rather than a vector-only
     one, so quietly inverting it is the worst outcome available.
@@ -508,7 +508,7 @@ def test_a_repeated_id_multiplies_rows_through_the_fusion(connection, chunked_ta
     The fusion joins the two candidate sets on the id column and then joins the result
     back to the table on it, so a row whose id is shared by five table rows becomes five
     results. A search for ten comes back as the same document ten times, with no error
-    anywhere — the shape of the answer is right and the content is nonsense.
+    anywhere, the shape of the answer is right and the content is nonsense.
     """
     search = HybridSearch(
         _config_for(chunked_table, "doc_id"),
@@ -622,7 +622,7 @@ def test_doctor_samples_drift_at_random_not_with_a_bare_limit(connection, drift_
 
     So the rows a sequential scan reaches last are exactly the rows that have been
     updated, which are exactly the rows likely to have drifted. Sampling with a bare
-    LIMIT reported 3 of 100 on a table that was genuinely 60 of 200 — it misses the
+    LIMIT reported 3 of 100 on a table that was genuinely 60 of 200, it misses the
     problem precisely because the problem moved the rows.
     """
     connection.execute(
@@ -734,7 +734,7 @@ def test_doctor_separates_a_wrong_text_config_from_a_stale_column(connection, dr
 
     A stopped trigger leaves most rows fine. A column built with another text search
     configuration leaves none of them fine, and rewriting the data would be the wrong
-    response — the configuration is what is wrong.
+    response, the configuration is what is wrong.
     """
     connection.execute("UPDATE drift_probe SET fts = to_tsvector('simple', content)")
     finding = _drift_finding(connection, drift_table, language="english")
@@ -814,7 +814,7 @@ def test_find_names_the_exclusion_rather_than_blaming_the_cut_off(connection, co
 
     A negative term removes the row from both candidate sets. Before this, find saw a row
     that was #1 on both signals and absent from the result, concluded it must have lost the
-    fused ordering, and advised raising candidate_limit — a knob that can never bring back a
+    fused ordering, and advised raising candidate_limit, a knob that can never bring back a
     row the query itself threw out. The real reason was in the query string the caller had
     just typed.
     """
@@ -1190,7 +1190,7 @@ def test_french_stemming_matches_an_inflected_query(connection, french_table):
 
     English stemming leaves the French plural and accents alone, so the same query
     against an English-configured query would not match the stored lexemes. Getting the
-    text search configuration wrong does not error — it silently returns nothing — which
+    text search configuration wrong does not error, it silently returns nothing, which
     is why this is asserted rather than assumed.
     """
     search = HybridSearch(
@@ -1208,7 +1208,7 @@ def test_the_wrong_text_config_degrades_silently(connection, french_table):
     for "loyers". Querying it as 'english' yields 'impayé' and 'loyer': one of the two
     terms still matches by luck, because it stems identically in both languages, and the
     other is lost. So the wrong configuration does not fail loudly and does not
-    necessarily return nothing — it quietly answers with less than you asked for, which
+    necessarily return nothing, it quietly answers with less than you asked for, which
     is harder to notice.
     """
     french = HybridSearch(
@@ -1246,7 +1246,7 @@ def test_a_query_config_must_match_the_column_config(connection, french_table):
     # The column stored 'locatair'; 'simple' asks for 'locataire' and finds nothing.
     assert simple.search("locataire", limit=5) == []
 
-    # With a vector alongside, the search still returns rows — from one signal only.
+    # With a vector alongside, the search still returns rows, from one signal only.
     degraded = simple.search("locataire", embedding=query_vector(), limit=3)
     assert degraded and all(row.text_rank is None for row in degraded)
 
@@ -1256,7 +1256,7 @@ def test_every_mode_returns_the_same_python_types(connection, config):
 
     A bare ``0.0`` is numeric in Postgres, not float8, so the single-signal branches
     used to return ``vector_contribution`` as a Decimal while the hybrid branch returned
-    a float. Callers do arithmetic on these — and ``Decimal + float`` raises TypeError,
+    a float. Callers do arithmetic on these, and ``Decimal + float`` raises TypeError,
     so code that worked on a hybrid query blew up on a text-only one. It also cost about
     3ms per query in client-side decoding, which showed up as keyword-only measuring
     slower than hybrid despite doing strictly less work on the server.
@@ -1362,7 +1362,7 @@ def test_a_view_can_be_searched_but_not_indexed(connection, unmigrated):
     )
     assert search.search(DEMO_QUERY, embedding=query_vector(), limit=3)
 
-    # No DDL, because none of it would apply — just a pointer to where indexes belong.
+    # No DDL, because none of it would apply, just a pointer to where indexes belong.
     statements = build_migration(config, info)
     assert all(s.optional for s in statements)
     assert any("cannot carry an index" in s.reason for s in statements)
@@ -1385,8 +1385,8 @@ def test_halfvec_is_gated_on_the_pgvector_version(connection):
     config = replace(suggest_config(info), vector_type="halfvec")
     statements = build_migration(config, replace(info, pgvector_version="0.6.2"))
 
-    # Other statements may legitimately accompany it — ANALYZE, an index on a filter
-    # column — so the assertion is about the halfvec decision, not the whole list.
+    # Other statements may legitimately accompany it. ANALYZE, an index on a filter
+    # column, so the assertion is about the halfvec decision, not the whole list.
     notes = [s for s in statements if s.kind == "note"]
     assert notes, "an unsupported vector_type should produce a note, not silence"
     assert "0.7.0" in notes[0].reason
@@ -1492,7 +1492,7 @@ def test_an_embedding_too_wide_to_index_gets_the_halfvec_route(connection):
     """text-embedding-3-large is 3,072 dimensions; pgvector indexes at most 2,000.
 
     A plain vector index simply refuses to build, so the migration has to reach for the
-    halfvec cast — whose limit is 4,000 — and say why, or the recommendation looks
+    halfvec cast, whose limit is 4,000, and say why, or the recommendation looks
     arbitrary.
     """
     connection.execute("DROP TABLE IF EXISTS wide CASCADE")
@@ -1532,7 +1532,7 @@ def test_weighted_fusion_runs_and_orders_correctly_for_every_metric(connection, 
     """The fusion method the README argues against still has to work.
 
     It is kept because people ask for it, and `explain` uses it to show what it does, so
-    it is a real code path — one that had only ever been checked as a generated string.
+    it is a real code path, one that had only ever been checked as a generated string.
 
     Its scores look odd and that is expected rather than broken. `1 - distance` assumes a
     distance bounded in [0, 1], which only cosine is: `<#>` returns a *negative* inner

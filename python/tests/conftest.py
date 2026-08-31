@@ -52,7 +52,7 @@ def demo_table():
     """Create and seed the demo corpus once per session.
 
     It used to be created by a module-scoped fixture inside test_integration.py, which
-    made every other module that touched it depend on collection order — the CLI tests
+    made every other module that touched it depend on collection order, the CLI tests
     passed locally against a database left seeded by an earlier run, and failed in CI
     where the ordering put them first. A shared session fixture is the fix: no module
     relies on another's side effects.

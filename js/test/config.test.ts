@@ -239,7 +239,7 @@ describe("numeric bounds and defaults", () => {
 
 describe("fields that are interpolated into the statement", () => {
   // Everything a caller supplies is either a bind parameter or an identifier passed
-  // through quoteIdent — except the text search configuration and the two function
+  // through quoteIdent, except the text search configuration and the two function
   // names, which are parts of the query rather than values. Those were interpolated
   // unchecked, so a language string could close the quote it sits inside and append
   // whatever it liked.

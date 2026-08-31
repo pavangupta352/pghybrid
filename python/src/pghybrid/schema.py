@@ -439,7 +439,7 @@ def _positional(row: Any) -> Any:
     """Return a row as a positional sequence, whatever shape the driver produced.
 
     Introspection unpacks its rows by position. A driver configured to return mappings
-    — ``psycopg.rows.dict_row``, ``RealDictCursor``, SQLAlchemy's ``RowMapping`` — would
+    (``psycopg.rows.dict_row``, ``RealDictCursor``, SQLAlchemy's ``RowMapping``) would
     otherwise unpack into column *names*, so the queried relkind would come back as the
     string "relkind" and the failure would be reported as an unsupported table type.
     Mapping order matches the SELECT list in every driver that offers this, which is
@@ -529,8 +529,8 @@ def dbapi_executor(connection: Any) -> Execute:
 
         Introspection unpacks its rows by position, and the catalog queries below
         legitimately select two columns with the same underlying name. A connection
-        configured for mapping rows — ``psycopg.rows.dict_row`` and its equivalents are
-        common — would collapse that pair into one key and hand back a row one column
+        configured for mapping rows, ``psycopg.rows.dict_row`` and its equivalents are
+        common, would collapse that pair into one key and hand back a row one column
         short. Asking for positional rows here is cheaper than aliasing every column in
         every catalog query and hoping nobody adds a colliding one later.
         """
@@ -1025,7 +1025,7 @@ def build_migration(config: Config, info: TableInfo) -> list[Statement]:
     Only statements that would change something are returned, so re-running this after
     applying it yields an empty list. Alternatives and tuning are marked ``optional``.
 
-    A view is searchable but cannot carry an index, so it gets no DDL — only a note
+    A view is searchable but cannot carry an index, so it gets no DDL, only a note
     pointing at the relation underneath, which is where the indexes belong.
     """
     statements: list[Statement] = []
@@ -1121,7 +1121,7 @@ def _vector_column_statements(config: Config, info: TableInfo, table: str) -> li
                     f"This config asks for halfvec, but the server runs pgvector "
                     f"{info.pgvector_version or 'unknown'}. halfvec, sparsevec and the "
                     "L1 operator all arrived in 0.7.0. Upgrade the extension, or leave "
-                    "vector_type as 'vector' — everything else here works from 0.5."
+                    "vector_type as 'vector', everything else here works from 0.5."
                 ),
                 kind="note",
                 optional=True,

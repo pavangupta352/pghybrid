@@ -9,8 +9,8 @@ any of them and without holding an opinion about pooling, transactions or retrie
     search = AsyncHybridSearch(cfg, lambda sql, args: conn.fetch(sql, *args))
 
 The row shaping is the part worth being careful about. A row found by only one signal
-has a NULL rank for the other, and the natural implementation — ``float(row["text_rank"])``
-— raises on exactly the rows hybrid search exists to surface. Every conversion here
+has a NULL rank for the other, and the natural implementation, ``float(row["text_rank"])``
+,  raises on exactly the rows hybrid search exists to surface. Every conversion here
 tolerates NULL and says so.
 """
 
@@ -267,7 +267,7 @@ class HybridSearch(_SearchBase):
     """Hybrid search over one table, driven by a synchronous ``execute`` callable.
 
     ``execute(sql, params)`` must run the statement and return the rows as mappings.
-    Everything else — connecting, pooling, retrying, tracing — stays in the caller's
+    Everything else, connecting, pooling, retrying, tracing, stays in the caller's
     code where it belongs.
     """
 

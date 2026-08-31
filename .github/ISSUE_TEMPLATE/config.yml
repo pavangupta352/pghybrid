@@ -3,6 +3,6 @@ contact_links:
   - name: Hybrid search on Supabase
     url: https://github.com/pavangupta352/pghybrid/blob/main/docs/guides/supabase.md
     about: Copy-paste SQL for Supabase, no extensions and no package required.
-  - name: Neon removed pg_search — what to do instead
+  - name: Neon removed pg_search, what to do instead
     url: https://github.com/pavangupta352/pghybrid/blob/main/docs/guides/neon-pg-search-removed.md
     about: Rewriting a pg_search hybrid query for stock Postgres.

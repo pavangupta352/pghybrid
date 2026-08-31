@@ -157,7 +157,7 @@ describe("adapters against a live server", () => {
    *
    * Reachability is only known after `beforeAll` has tried to connect, and gating on an
    * environment variable instead meant these silently skipped for anyone who followed
-   * CONTRIBUTING — `docker compose up -d` then `npm test` — because the database was up
+   * CONTRIBUTING, `docker compose up -d` then `npm test`, because the database was up
    * but PGHYBRID_TEST_DSN was not set. The Python suite needs no such variable, and
    * neither should this. Reporting them as skipped, rather than returning early and
    * passing, keeps the count honest.

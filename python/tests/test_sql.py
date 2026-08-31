@@ -2,7 +2,7 @@
 
 Every test here is a pure function of a Config and some arguments: no connection, no
 fixtures with side effects, no network. That is the whole point of keeping SQL
-generation separate from execution — the statement can be asserted on directly, and a
+generation separate from execution, the statement can be asserted on directly, and a
 regression in the query shape is caught before anyone has to notice bad search results.
 
 The assertions favour naming the failure mode over matching the text. A test called
@@ -335,7 +335,7 @@ def test_hybrid_fuses_with_a_full_outer_join_never_an_inner_join(config: Config)
     """An INNER JOIN here would silently reduce hybrid search to the intersection.
 
     That is the single most damaging regression this file can catch: the query still
-    runs, still returns rows, and still looks plausible — it just quietly drops every
+    runs, still returns rows, and still looks plausible, it just quietly drops every
     document that only one of the two signals found, which is most of the ones hybrid
     search exists to surface.
     """
@@ -603,7 +603,7 @@ def test_each_metric_maps_to_its_operator(
 ) -> None:
     """Using the wrong operator ranks by the wrong distance and skips the index.
 
-    The failure is silent — results come back, they are just subtly worse — so the
+    The failure is silent, results come back, they are just subtly worse, so the
     mapping is pinned here rather than trusted.
     """
     cfg = make_config(metric=metric)
@@ -709,7 +709,7 @@ def test_reserved_names_are_exactly_what_the_statement_returns(make_config: Any)
 
     RESERVED_OUTPUT_NAMES exists to stop a table column shadowing a computed one. It is a
     hand-written list, so it rots the moment someone adds an output column and does not
-    think of it — and the failure it guards against is silent, which is exactly the kind
+    think of it, and the failure it guards against is silent, which is exactly the kind
     nobody notices. This reads the aliases back out of a statement with every optional
     output turned on and insists the two agree.
     """
@@ -899,7 +899,7 @@ def test_the_interpolated_names_are_validated_before_they_reach_the_statement(
 ) -> None:
     """language, query_parser and rank_function are parts of the query, not values.
 
-    They cannot be bound, so they are validated in Config instead — and they used not to
+    They cannot be bound, so they are validated in Config instead, and they used not to
     be, which made a Config built from user input an injection surface unlike every other
     field. The check lives in Config, so the builder can interpolate them without
     thinking about it; this asserts the two halves stay connected.
@@ -963,8 +963,8 @@ def test_canonical_sql_matches_the_golden_snapshot() -> None:
     different libraries with one name, and the difference would only ever surface as
     "the JS results are a bit worse", which nobody can debug.
 
-    A diff here is either a deliberate change to the query — regenerate with
-    PGHYBRID_UPDATE_GOLDEN=1 and read the diff line by line before committing it — or a
+    A diff here is either a deliberate change to the query, regenerate with
+    PGHYBRID_UPDATE_GOLDEN=1 and read the diff line by line before committing it, or a
     bug that just escaped every other test in this file.
     """
     sql, _ = _canonical_query()

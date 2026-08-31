@@ -316,7 +316,7 @@ class TestFieldsThatAreInterpolatedIntoTheStatement:
     """Three config fields cannot be bound, so they are validated instead.
 
     Everything a caller supplies is either a bind parameter or an identifier passed
-    through quote_ident — except the text search configuration and the two function
+    through quote_ident, except the text search configuration and the two function
     names, which are parts of the query rather than values. Those were interpolated
     unchecked, so a language string could close the quote it sits inside and append
     whatever it liked. An application that lets a user pick a search language is not a
@@ -380,7 +380,7 @@ def test_the_package_ships_its_typing_marker() -> None:
     """PEP 561: without py.typed a consumer's type checker reports every symbol as Any.
 
     The package is annotated throughout and checks itself under mypy --strict, and
-    pyproject declares the Typing :: Typed classifier — none of which reaches a user
+    pyproject declares the Typing :: Typed classifier, none of which reaches a user
     without this file. It shipped without one, so the classifier was a claim the wheel
     did not honour and every downstream `reveal_type` came back Any.
     """

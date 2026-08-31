@@ -4,7 +4,7 @@
  *
  * The unit suite proves the package generates the right string. It cannot prove the
  * string is valid SQL, that the placeholders line up with what the driver sends, or
- * that the vector literal is a shape pgvector accepts — all of which are ways a query
+ * that the vector literal is a shape pgvector accepts, all of which are ways a query
  * generator passes its own tests and fails on a server.
  *
  * The corpus is the demo one from `scripts/seed_demo.py`. The row this asserts on is
@@ -51,8 +51,8 @@ try {
   for (const [index, result] of results.entries()) {
     process.stdout.write(
       `  ${index + 1}  ${result.score.toFixed(6)}  ` +
-        `vector ${String(result.vectorRank ?? "—").padStart(2)}  ` +
-        `text ${String(result.textRank ?? "—").padStart(2)}  ` +
+        `vector ${String(result.vectorRank ?? ", ").padStart(2)}  ` +
+        `text ${String(result.textRank ?? ", ").padStart(2)}  ` +
         `${String(result.row.title)}\n`,
     );
   }

@@ -507,7 +507,7 @@ class _Prober:
 
         The sample must be random. A bare LIMIT is not: an UPDATE writes a new row
         version at the end of the heap, so the rows a sequential scan reaches last are
-        exactly the rows that have been updated — and therefore exactly the rows likely
+        exactly the rows that have been updated, and therefore exactly the rows likely
         to have drifted. Sampling that way reported 3 of 100 on a table that was 60 of
         200. Same rule as sample_vectors, for the same reason.
 
@@ -1032,8 +1032,8 @@ def _check_inventory(report: DoctorReport, probe: _Prober) -> None:
             )
         )
 
-    # The id column is the join key twice over — the two candidate sets are joined on it
-    # and the result is joined back to the table on it — so uniqueness is not a nicety.
+    # The id column is the join key twice over, the two candidate sets are joined on it
+    # and the result is joined back to the table on it, so uniqueness is not a nicety.
     # A repeated id multiplies rows: limit=10 on a table with five rows per id came back
     # as the same document ten times, with no error anywhere.
     id_column = info.column(config.id_column)

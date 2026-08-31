@@ -28,12 +28,12 @@ scripts/check_all.sh          # or: scripts/check_all.sh fast, to skip the packa
 A documentation code block is checked if the line before its fence is `<!-- check:python -->` or
 `<!-- check:ts -->` or `<!-- check:sql -->`, which render as nothing on GitHub. SQL blocks
 run in order in a schema of their own, followed by `scripts/doc_asserts/<page>.sql` if it
-exists — every statement there that returns rows must return `true` in the first column. Add the marker to any block a
+exists, every statement there that returns rows must return `true` in the first column. Add the marker to any block a
 reader is meant to copy and run; leave it off fragments that are illustrative rather than
 runnable, like the list of four adapters assigning the same name four times.
 
-Worth using rather than running the pieces you remember. `npm test` does not typecheck —
-vitest strips the types — so a type error in a test file passes locally and fails CI, and
+Worth using rather than running the pieces you remember. `npm test` does not typecheck, 
+vitest strips the types, so a type error in a test file passes locally and fails CI, and
 the parity, README-output and packaging checks are easy to forget entirely.
 
 ## What makes a change easy to accept
@@ -43,7 +43,7 @@ the parity, README-output and packaging checks are easy to forget entirely.
 means updating both and regenerating the snapshot in the same pull request.
 
 **Explain the failure mode, not the syntax.** The comments in this codebase say why a
-decision exists — which bug it prevents, which surprise it avoids. A comment that
+decision exists, which bug it prevents, which surprise it avoids. A comment that
 restates the line above it will be asked about in review.
 
 **No runtime dependencies.** Neither package has any and neither should acquire one.
@@ -63,5 +63,5 @@ worth a thousand words of description.
 
 This is a query layer, deliberately. It does not embed text, chunk documents, rerank
 results, or talk to any vector store other than Postgres. Proposals that would add those
-are likely to be declined — not because they are bad ideas, but because staying small is
+are likely to be declined, not because they are bad ideas, but because staying small is
 what keeps this auditable and installable.

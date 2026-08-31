@@ -13,7 +13,7 @@ Run it:
 
 No API key and no network: the example embeds with a deterministic stand-in so it prints
 the same thing everywhere. Swap `DemoEmbeddings` for `OpenAIEmbeddings`, `CohereEmbeddings`
-or any other `Embeddings` implementation and nothing else changes — pghybrid never calls a
+or any other `Embeddings` implementation and nothing else changes, pghybrid never calls a
 model, it takes the vector you hand it.
 """
 
@@ -44,7 +44,7 @@ class PgHybridRetriever(BaseRetriever):
     """A LangChain retriever backed by hybrid search on plain Postgres.
 
     The one thing worth noticing: a retriever is handed a query *string*, while pghybrid
-    wants the query text and its embedding. So the retriever owns the embedding step —
+    wants the query text and its embedding. So the retriever owns the embedding step, 
     which is also what lets the same index serve any model you point at it.
     """
 
@@ -136,7 +136,7 @@ def main() -> int:
 
     print(
         "\n  Every document carries which signal found it, which a vector-only\n"
-        "  retriever cannot tell you — and is usually the first thing you want\n"
+        "  retriever cannot tell you, and is usually the first thing you want\n"
         "  when a chain returns the wrong context.\n"
     )
     return 0

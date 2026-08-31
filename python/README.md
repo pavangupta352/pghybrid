@@ -14,20 +14,20 @@ pip install pghybrid
 
 Hybrid search on Postgres is a solved problem *if you can install a C extension*.
 `pg_search`, VectorChord and `pg_textsearch` are all excellent, and all of them are
-extensions — and on managed Postgres you usually cannot install extensions at all.
+extensions, and on managed Postgres you usually cannot install extensions at all.
 
 **`pgvector` is available almost everywhere. BM25 extensions are available almost
 nowhere:** not on RDS, Aurora, Cloud SQL, Azure Database, Supabase or Heroku, and
 [removed from Neon for new projects in March 2026](https://neon.com/docs/extensions/pg_search).
 
-This is not a claim to search better than ParadeDB — `pg_search`'s BM25 genuinely beats
+This is not a claim to search better than ParadeDB, `pg_search`'s BM25 genuinely beats
 `ts_rank_cd`, and if you can install it you probably should. It is search you can
 actually install.
 
 ## The case it exists for
 
 A contract. Someone asks **"renewal notice period"**. The clause that answers it says
-*"sixty days written notice prior to the anniversary date"* — it never uses the word
+*"sixty days written notice prior to the anniversary date"*, it never uses the word
 *renewal*. Vector search puts a plausible-but-wrong clause first. Keyword search puts the
 clause that uses all three words and answers none of them first. The right answer is
 second on both signals and first on neither, which is exactly what rank fusion is for.
@@ -50,11 +50,11 @@ for row in search.search("renewal notice period", embedding=query_vector, limit=
 
 You pass the embedding in. `pghybrid` never calls a model, so it works with OpenAI,
 Cohere, Voyage, a local sentence-transformer or anything else, and needs no API key. It
-never opens a connection either — it generates SQL and hands it to the driver you already
+never opens a connection either, it generates SQL and hands it to the driver you already
 use. `for_psycopg`, `for_sqlalchemy`, `for_asyncpg` and `for_django` set the placeholder
 style for you.
 
-`row.matched_by` tells you which signal found each row — `both`, `vector` or `text` —
+`row.matched_by` tells you which signal found each row (`both`, `vector` or `text`), 
 which is usually the first thing you want when a search returns the wrong thing.
 
 ## Read the statement instead of running it
@@ -75,7 +75,7 @@ pghybrid doctor --dsn "$DATABASE_URL" --table chunks   # measured recall, read-o
 
 `doctor` measures recall@k against exact search, sweeps `ef_search`/`probes`, catches
 queries that silently fall back to a sequential scan, and reports a `tsvector` that has
-stopped matching its text — a failure that returns wrong answers without erroring.
+stopped matching its text. That failure returns wrong answers without erroring.
 
 `explain` decomposes a single result set: both ranks, both raw scores, each signal's
 contribution, and the near-miss band just below your cut-off.

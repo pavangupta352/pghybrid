@@ -3,22 +3,22 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] — 2026-08-31
+## [0.1.0], 2026-08-31
 
 First release.
 
 ### Added
 - Hybrid search over `pgvector` + built-in full-text search, fused by Reciprocal Rank
   Fusion, generated as a single statement with one candidate CTE per signal.
-- `explain()` — per-signal decomposition of a result set, a near-miss band showing the
+- `explain()`, per-signal decomposition of a result set, a near-miss band showing the
   rows just below the cut-off, and an effective-weights measurement that shows how much
   influence each signal actually has as opposed to how much its weight claims.
-- `find()` — locate text you expected to retrieve and report where it actually ranked,
+- `find()`, locate text you expected to retrieve and report where it actually ranked,
   separating "never indexed" from "outranked".
-- `doctor()` — index recommendations with the arithmetic shown, measured recall@k against
+- `doctor()`, index recommendations with the arithmetic shown, measured recall@k against
   exact search, an `ef_search`/`probes` sweep, sequential-scan detection, and filtered
   recall.
-- `init` — schema introspection and migration generation.
+- `init`, schema introspection and migration generation.
 - Recency decay, metadata filters scoped inside both candidate CTEs, `ts_headline`
   highlighting, `halfvec` support, and four distance metrics.
 - Driver adapters that also set the placeholder style, so it cannot be got wrong:
@@ -43,7 +43,7 @@ First release.
 - An exclusion (`-term`) now constrains **both** signals. It was applied only to the
   tsquery, so the vector half still returned the excluded rows: they left the text
   candidates, arrived with a vector rank and no text rank, and RRF paid the best vector
-  hit `1/(k+1)` — the largest single contribution available. A row you typed `-pricing`
+  hit `1/(k+1)`, the largest single contribution available. A row you typed `-pricing`
   to be rid of could come back first. Found before release; the keyword-only test that
   covered it passed throughout, because the tsquery is exactly where the exclusion was
   already correct.
@@ -55,18 +55,18 @@ First release.
 
 - Pagination past the candidate pool no longer returns an empty page. `candidate_limit`
   bounds the whole result set, so with the default 50 and a page size of 10, page 6 came
-  back empty on a table where 490 rows matched — indistinguishable from having reached
+  back empty on a table where 490 rows matched, indistinguishable from having reached
   the end. It now raises, naming the pool size needed.
 
   The pool deliberately does **not** grow to cover the offset, which was the first fix
   and was worse than the bug: ranks are assigned inside the pool, so a pool that widens
   per page reorders every page. Paging 8×10 that way returned 71 distinct rows instead of
-  80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
+  80 and never showed 9 rows that a single `limit=80` query returns, duplicates and gaps
   in a search UI, with nothing to indicate anything was wrong.
 
-- Both README quickstarts were wrong, and the documentation's code is now run in CI rather than only read — the README and both migration guides. The
+- Both README quickstarts were wrong, and the documentation's code is now run in CI rather than only read, the README and both migration guides. The
   Python one printed `None` for every title, because it asked for `row.get("title")` from
-  a config that never selected `title` — a new reader's first run looked like the library
+  a config that never selected `title`, a new reader's first run looked like the library
   was broken. The TypeScript one imported `Config`, a type-only export, as a value, which
   compiles until the reader's tsconfig sets `verbatimModuleSyntax`, the setting TypeScript
   5 recommends, and then fails on line 1. `scripts/check_docs_code.py` executes the
@@ -74,31 +74,31 @@ First release.
   against the packed tarball.
 - `init --apply` no longer reports success for work it did not do. A bare `vector` column
   has to be given the dimension the model produces, which nothing here can know, so the
-  migration carries that as a comment with a placeholder — and `--apply` sent it to the
+  migration carries that as a comment with a placeholder, and `--apply` sent it to the
   server, which accepts a comment as an empty command, printed `ok` for it and ended with
   "done." at exit code 0. The column was untouched. Statements that are entirely comments
   are now listed as work still to do by hand, and the command exits 1 while any remain.
 - The Supabase guide's `hybrid_search` function is executed in CI. It is a hand-written
   copy of the query this library generates, which makes it the documentation most likely
-  to drift — the generated SQL is checked from every direction and nothing at all ran
+  to drift, the generated SQL is checked from every direction and nothing at all ran
   that function. Five assertions cover it, including that a row found by both signals
   scores above `1/(k+1)`, which is what catches a fusion reduced to one signal or an RRF
   numerator written as an integer.
 - `explain(find=...)` names an exclusion as the reason a row is missing. It used to see a
   row that was #1 on both signals and absent from the result, conclude it had lost the
-  fused ordering, and advise raising `candidate_limit` — a knob that can never bring back
+  fused ordering, and advise raising `candidate_limit`, a knob that can never bring back
   a row the query itself removed. The real reason was the `-term` in the query string the
   caller had just typed.
 - A column selected through to the result can no longer be named like one the statement
   computes. Postgres permits two output columns with the same name and the driver keeps
   the last, which is the table's, so the computed value disappeared without an error:
   listing a column called `text_rank` turned `text_rank=1, matched_by="both"` into
-  `text_rank=None, matched_by="vector"` on the same query and the same data — the library
+  `text_rank=None, matched_by="vector"` on the same query and the same data, the library
   reporting that the keyword signal missed rows it had ranked first. `Config` now refuses
   the whole reserved set, and a test reads the aliases back out of a fully-featured
   statement so the list cannot fall behind the query.
 - The `tsvector` check covers generated columns. Scoping it to hand-maintained ones looked
-  obviously right — a generated column cannot fall behind its own expression — and missed
+  obviously right, a generated column cannot fall behind its own expression, and missed
   the case where the expression is not the one the config describes. A column generated
   with `'english'` and searched by a config saying `'simple'` returned 5 rows against 0 on
   the same table, and nothing reported it. The finding quotes the stored expression, and a
@@ -109,8 +109,8 @@ First release.
   no finding; without one, an actual duplicate is an error naming it, and no duplicate is
   a warning, because the first insert makes it wrong.
 - `doctor` measures whether a hand-maintained `tsvector` still matches its text instead
-  of warning that it might not. A stale column is silent in both directions — rows are
-  returned for words they no longer contain and missing for the words they do — and reads
+  of warning that it might not. A stale column is silent in both directions, rows are
+  returned for words they no longer contain and missing for the words they do, and reads
   as a relevance problem. A column that disagrees on every sampled row is reported
   separately as a text search configuration mismatch, which has a different fix. The
   sample is random rather than a bare `LIMIT`: an UPDATE writes the new row version at the

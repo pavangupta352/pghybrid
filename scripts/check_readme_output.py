@@ -26,7 +26,9 @@ import psycopg
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
-DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
+DSN = os.environ.get(
+    "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+)
 
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -54,7 +56,12 @@ def render_explain() -> str:
             execute=lambda sql, params: conn.execute(sql, params).fetchall(),
         )
         text = explain(
-            search, DEMO_QUERY, query_vector(), limit=4, near_miss=3, label_column="title"
+            search,
+            DEMO_QUERY,
+            query_vector(),
+            limit=4,
+            near_miss=3,
+            label_column="title",
         ).to_text()
     return text[: text.index("  effective weights")].rstrip()
 
@@ -127,7 +134,9 @@ def main() -> int:
     for name, pattern, render in BLOCKS:
         match = pattern.search(readme)
         if match is None:
-            print(f"FAIL: could not find the {name} block in README.md", file=sys.stderr)
+            print(
+                f"FAIL: could not find the {name} block in README.md", file=sys.stderr
+            )
             failures += 1
             continue
 
@@ -135,7 +144,11 @@ def main() -> int:
         # The weights block starts with the text the regex captured as group 1, so the
         # comparison has to include it.
         current = match.group(0)[len(match.group(1)) : -len(match.group(2))].rstrip()
-        expected = actual[len(match.group(1)) :].rstrip() if name == "effective weights" else actual
+        expected = (
+            actual[len(match.group(1)) :].rstrip()
+            if name == "effective weights"
+            else actual
+        )
 
         if current == expected:
             print(f"ok    {name}")
@@ -153,9 +166,16 @@ def main() -> int:
             continue
 
         failures += 1
-        print(f"\nFAIL: the {name} block in README.md is not what the tool prints", file=sys.stderr)
+        print(
+            f"\nFAIL: the {name} block in README.md is not what the tool prints",
+            file=sys.stderr,
+        )
         diff = difflib.unified_diff(
-            current.splitlines(), expected.splitlines(), "README.md", "actual", lineterm=""
+            current.splitlines(),
+            expected.splitlines(),
+            "README.md",
+            "actual",
+            lineterm="",
         )
         for line in list(diff)[:24]:
             print(f"  {line}", file=sys.stderr)

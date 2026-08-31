@@ -1,7 +1,7 @@
 """Run the files in sql/ against a real database, exactly as a user would.
 
-The standalone SQL is a supported way to use this project — the README tells people
-they can paste it into the Supabase editor and never install the package — so it is
+The standalone SQL is a supported way to use this project, the README tells people
+they can paste it into the Supabase editor and never install the package, so it is
 tested like code rather than trusted like documentation. Documentation that is only
 read goes stale silently; this fails the build instead.
 
@@ -19,7 +19,9 @@ import sys
 import psycopg
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
+DSN = os.environ.get(
+    "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+)
 
 # The demo corpus is built so the planted answer ranks second on both signals and
 # first on neither. If the standalone SQL returns it first, the fusion in these files
@@ -43,7 +45,9 @@ def main() -> int:
     # EXECUTE is a utility statement, so Postgres cannot infer parameter types for it
     # over the extended protocol. Binding client-side sends literals instead, which is
     # also closer to what someone pasting this into a SQL editor actually does.
-    with psycopg.connect(DSN, autocommit=True, cursor_factory=psycopg.ClientCursor) as conn:
+    with psycopg.connect(
+        DSN, autocommit=True, cursor_factory=psycopg.ClientCursor
+    ) as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
         # A table with no tsvector column and no indexes, so migration.sql has to do

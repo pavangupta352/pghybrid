@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         This is a query layer, deliberately. It does not embed text, chunk documents,
-        rerank results, or support vector stores other than Postgres — staying small is
+        rerank results, or support vector stores other than Postgres, staying small is
         what keeps it auditable and installable anywhere. Proposals in those directions
         are likely to be declined, and that is not a judgement on the idea.
   - type: textarea

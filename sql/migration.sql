@@ -1,4 +1,4 @@
--- pghybrid — schema changes for hybrid search
+-- pghybrid, schema changes for hybrid search
 -- https://github.com/pavangupta352/pghybrid
 --
 -- Run this once. It adds a searchable tsvector column and the two indexes the
@@ -23,7 +23,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 --
 -- 'english' applies English stemming, which is wrong for most other languages.
 -- Use your own language ('french', 'german', 'spanish', ...) or 'simple' for
--- no stemming at all — 'simple' is usually the right choice for identifiers,
+-- no stemming at all, 'simple' is usually the right choice for identifiers,
 -- product codes and mixed-language corpora.
 -- ---------------------------------------------------------------------------
 ALTER TABLE chunks                                 -- CHANGE ME: your table
@@ -88,8 +88,8 @@ CREATE INDEX IF NOT EXISTS chunks_embedding_idx    -- CHANGE ME: your table
 -- Optional: filtered search that keeps its recall.
 --
 -- An approximate index searches a fixed neighbourhood, then your WHERE clause
--- removes rows from what it found. With a selective filter — one tenant out of
--- ten thousand — almost everything the index returned is discarded and you get
+-- removes rows from what it found. With a selective filter, one tenant out of
+-- ten thousand, almost everything the index returned is discarded and you get
 -- three results when you asked for ten. The search is not broken; it never
 -- looked in the right place.
 --

@@ -5,7 +5,7 @@ wanted sits at position eleven where nobody looks. This module answers the two
 questions that follow, both of which are hard to answer from a result set alone:
 
 **Where did my chunk go?** The report ranks past the cut-off and marks the near-miss
-band — the rows between ``limit`` and ``limit + near_miss``. That band is where a
+band, the rows between ``limit`` and ``limit + near_miss``. That band is where a
 retrieval bug usually lives, and it is invisible in production because the application
 throws it away. If the expected chunk is not there either, :func:`explain` can look it
 up directly and say whether it is outranked or simply not indexed. Those are different
@@ -13,8 +13,8 @@ bugs with different fixes, and confusing them costs days.
 
 **Do my weights mean what I think?** Under ``weighted`` fusion people write
 ``0.7 * (1 - cosine_distance) + 0.3 * ts_rank`` and believe they configured 70/30. They
-did not. Cosine distance is bounded and clusters tightly — the top candidates often all
-sit within a few hundredths of each other — while ``ts_rank_cd`` is unbounded and tiny.
+did not. Cosine distance is bounded and clusters tightly, the top candidates often all
+sit within a few hundredths of each other, while ``ts_rank_cd`` is unbounded and tiny.
 What decides the ordering is not each term's weight but the *range* each weighted term
 covers across the candidates, and those ranges are not comparable. The report measures
 both, for both fusion methods, so the gap is a number instead of an argument.
@@ -110,7 +110,7 @@ class SignalWeights:
 
     signal: str
     weight: float
-    #: ``weight / (vector weight + text weight)`` — the split the user thinks they set.
+    #: ``weight / (vector weight + text weight)``, the split the user thinks they set.
     nominal_share: float
     #: How many of the fused candidates this signal retrieved, and therefore how many
     #: rows the span was measured over. The rest scored zero from this signal, which is
@@ -119,7 +119,7 @@ class SignalWeights:
     low: float
     high: float
     span: float
-    #: ``span / total span`` — the split they actually got. None when no candidate
+    #: ``span / total span``, the split they actually got. None when no candidate
     #: separated from any other, which makes the question meaningless rather than 50/50.
     effective_share: float | None
 
@@ -227,7 +227,7 @@ class ExplainReport:
 
     @property
     def near_miss_rows(self) -> list[ExplainRow]:
-        """The rows just below the cut-off — the ones production never shows anyone."""
+        """The rows just below the cut-off, the ones production never shows anyone."""
         return [row for row in self.rows if row.near_miss]
 
     @property
@@ -313,7 +313,7 @@ def _plan(
     depth = max(resolved_candidates, limit + near_miss)
 
     # Fetching the whole candidate set rather than the visible window costs nothing
-    # extra in the database — the candidate CTEs are built either way — and it is what
+    # extra in the database, the candidate CTEs are built either way, and it is what
     # lets `find` distinguish "ranked 40th" from "never retrieved".
     queries: dict[str, tuple[str, list[Any]]] = {
         method: search.build_sql(
@@ -360,14 +360,14 @@ def explain(
     ``near_miss`` extends the report past ``limit`` so the rows that just missed the
     cut are visible; they are the usual home of a "search is broken" report.
 
-    ``find`` takes the text the caller expected to be retrieved — a title, or any
+    ``find`` takes the text the caller expected to be retrieved, a title, or any
     distinctive phrase from the chunk. If it is not among the candidates, one extra
     statement locates it in the table and reports its rank under each signal. That
     statement scans, because the whole question is about a row the indexes did not
     return, so pass ``find`` when you are debugging rather than on every request.
 
-    Costs two statements — the same search under each fusion method, so the weight
-    comparison is measured rather than modelled — plus that lookup when it is needed.
+    Costs two statements, the same search under each fusion method, so the weight
+    comparison is measured rather than modelled, plus that lookup when it is needed.
     """
     plan = _plan(
         search,
@@ -495,7 +495,7 @@ async def measure_weights_async(
 
 
 # ======================================================================================
-# Assembly — pure functions over rows the caller already fetched
+# Assembly, pure functions over rows the caller already fetched
 # ======================================================================================
 
 
@@ -575,8 +575,8 @@ def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> Weigh
     Each span covers the rows that signal actually retrieved. Rows it did not retrieve
     contribute a coalesced zero, and folding those zeros in would break the measurement
     twice over: under RRF every span would collapse to ``weight / (k + 1)``, making the
-    effective share identically equal to the nominal one for every query ever run — a
-    tautology dressed up as a result — and under ``weighted`` fusion the reported range
+    effective share identically equal to the nominal one for every query ever run, a
+    tautology dressed up as a result, and under ``weighted`` fusion the reported range
     would be the magnitude of the signal rather than its spread, which is the opposite
     of the thing that decides an ordering. The zeros are still worth knowing about, so
     :attr:`SignalWeights.matched` reports how many rows each span was measured over.
@@ -677,7 +677,7 @@ def _replace_find(report: ExplainReport, finding: FindReport | None) -> ExplainR
 
 
 # ======================================================================================
-# find — "I know the answer is in there; where did it go?"
+# find, "I know the answer is in there; where did it go?"
 # ======================================================================================
 
 
@@ -691,8 +691,8 @@ def _matches_text(row: ExplainRow, needle: str) -> bool:
 def _find_in_candidates(report: ExplainReport, needle: str) -> FindReport | None:
     """Locate the expected text among the rows the query already returned.
 
-    Checked before going back to the database, because the common case — the chunk was
-    retrieved and simply ranked too low — needs no further query, and because ranks
+    Checked before going back to the database, because the common case, the chunk was
+    retrieved and simply ranked too low, needs no further query, and because ranks
     inside the candidate set are already the global ranks: the candidate CTE ranks the
     top ``candidate_limit`` rows of the whole table.
     """
@@ -710,7 +710,7 @@ def _find_in_candidates(report: ExplainReport, needle: str) -> FindReport | None
         return None
 
     if matched.position <= report.limit:
-        reason = f"returned at #{matched.position} — the query found it"
+        reason = f"returned at #{matched.position}, the query found it"
         remedy = None
     elif matched.near_miss:
         reason = f"#{matched.position} in the near-miss band, just outside the top {report.limit}"
@@ -761,7 +761,7 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
     This statement answers the question the search query cannot: does the row exist, is
     it excluded by a filter, does it have an embedding at all, and where would it rank
     globally under each signal. The global ranks are counts of better rows rather than
-    an ORDER BY, which keeps it to one pass per signal, but it is still a scan — it runs
+    an ORDER BY, which keeps it to one pass per signal, but it is still a scan, it runs
     only when the row is missing from the candidate set.
 
     The tsquery and distance expressions are borrowed from the SQL builder rather than
@@ -799,7 +799,7 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
 
     # A negative term removes the row from both candidate sets, so "why is it missing"
     # has to be able to answer "because you excluded it". Without this the row looks like
-    # it merely ranked too low, and the advice is to raise candidate_limit — a knob that
+    # it merely ranked too low, and the advice is to raise candidate_limit, a knob that
     # can never bring back a row the query itself threw out.
     excluded_terms = parse_query(plan.text).negative[: cfg.max_query_terms] if plan.text else []
 
@@ -909,7 +909,7 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
                 reason=f"no row in {plan.config.table} contains that text (searched {columns})",
                 remedy=(
                     "the chunk is not in the table, so no amount of ranking will "
-                    "retrieve it — check ingestion and chunking, not the weights"
+                    "retrieve it, check ingestion and chunking, not the weights"
                 ),
             ),
         )
@@ -925,7 +925,7 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
     # A rank is only meaningful when the signal could produce one, and when the row is
     # part of the population the rank was counted over. Both global ranks are counts of
     # better rows *within the filters*, so a row the filters exclude would come back as
-    # rank 1 — the exact opposite of the truth — as would a row whose distance is NULL
+    # rank 1, the exact opposite of the truth, as would a row whose distance is NULL
     # because it has no embedding.
     rankable = passes_filters
     raw_vector_rank = row.get("global_vector_rank")
@@ -1006,7 +1006,7 @@ def _diagnose(
     if not passes_filters:
         return (
             f"{row} exists, but the filters on this query exclude it",
-            "the ranking never saw it — check the filter, not the weights",
+            "the ranking never saw it, check the filter, not the weights",
         )
 
     queried_vector = report.embedding_dimensions is not None
