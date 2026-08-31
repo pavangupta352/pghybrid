@@ -1,0 +1,18 @@
+# Postgres for the test suite and the examples.
+#
+# The image is stock pgvector/pgvector with nothing added. Only "vector" is ever
+# created, which is what lets the integration tests assert the project's central
+# claim: that no other extension is required.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_PASSWORD: pghybrid
+      POSTGRES_DB: pghybrid
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pghybrid"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

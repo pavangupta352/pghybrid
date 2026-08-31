@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: python ${{ matrix.python }} / pgvector ${{ matrix.pg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+        pg: ["pg17"]
+        include:
+          # The oldest Postgres worth supporting, checked once rather than against
+          # every Python: the SQL is what varies by server version, not the client.
+          - python: "3.13"
+            pg: "pg14"
+    services:
+      postgres:
+        # Stock pgvector image with nothing added. The integration suite asserts that
+        # only "vector" is ever created, which is the project's central claim.
+        image: pgvector/pgvector:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: pghybrid
+          POSTGRES_DB: pghybrid
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pghybrid"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      PGHYBRID_TEST_DSN: postgresql://postgres:pghybrid@localhost:5432/pghybrid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        working-directory: python
+        run: |
+          uv venv --python ${{ matrix.python }}
+          uv pip install -e ".[dev]"
+      - name: Lint
+        working-directory: python
+        run: |
+          .venv/bin/ruff check src tests
+          .venv/bin/ruff format --check src tests
+      - name: Types
+        working-directory: python
+        run: .venv/bin/mypy src
+      - name: Test
+        working-directory: python
+        run: .venv/bin/python -m pytest -q --cov=pghybrid --cov-report=term-missing
+
+  typescript:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["18", "22"]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: pghybrid
+          POSTGRES_DB: pghybrid
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pghybrid"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      PGHYBRID_TEST_DSN: postgresql://postgres:pghybrid@localhost:5432/pghybrid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install
+        working-directory: js
+        run: npm ci
+      - name: Lint and types
+        working-directory: js
+        run: npm run lint && npm run typecheck
+      - name: Test
+        working-directory: js
+        run: npm test
+
+  parity:
+    name: python and typescript generate identical SQL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install both
+        run: |
+          cd python && uv venv && uv pip install -e ".[dev]" && cd ..
+          cd js && npm ci && cd ..
+      # Two implementations of the same query generator will drift apart unless
+      # something fails when they do. Both render the same fixtures and the outputs
+      # are compared byte for byte.
+      - name: Compare generated SQL
+        run: python3 scripts/check_parity.py
+
+  sql:
+    name: standalone SQL runs unmodified
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: pghybrid
+          POSTGRES_DB: pghybrid
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pghybrid"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      PGHYBRID_TEST_DSN: postgresql://postgres:pghybrid@localhost:5432/pghybrid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # The files in sql/ are a supported way to use this project, so they are tested
+      # like code rather than treated as documentation.
+      - name: Run sql/migration.sql and sql/hybrid_search.sql
+        run: |
+          cd python && uv venv && uv pip install -e ".[dev]" && cd ..
+          python/.venv/bin/python scripts/check_standalone_sql.py
+
+  gitleaks:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
