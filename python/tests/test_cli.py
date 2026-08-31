@@ -1,0 +1,245 @@
+"""The command line, exercised as a person would use it.
+
+The CLI is the surface most people touch first and the only one that takes strings from
+outside the program, and it had never been tested. Both bugs found in it so far came from
+that: a hostile ``--language`` reached the statement because overrides were applied with
+``setattr`` and skipped validation, and a missing table produced a traceback instead of a
+sentence.
+
+``main`` is called directly rather than through a subprocess. It returns the exit code, so
+the assertions can be about behaviour rather than about text scraped from a shell.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+
+from pghybrid.cli import main
+
+psycopg = pytest.importorskip("psycopg")
+
+DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
+TABLE = "chunks"
+QUERY = "renewal notice period"
+ANSWER = "Termination for convenience"
+
+
+def reachable() -> bool:
+    try:
+        with psycopg.connect(DSN, connect_timeout=3):
+            return True
+    except Exception:
+        return False
+
+
+needs_database = pytest.mark.skipif(not reachable(), reason=f"no Postgres at {DSN}")
+
+
+@pytest.fixture(autouse=True)
+def dsn_in_environment(monkeypatch):
+    """The CLI reads PGHYBRID_DSN, so every test gets it unless it is testing its absence."""
+    monkeypatch.setenv("PGHYBRID_DSN", DSN)
+
+
+def run(*argv: str) -> int:
+    return main(list(argv))
+
+
+# ------------------------------------------------------------------ no database needed
+
+
+def test_version(capsys):
+    assert run("--version") == 0
+    assert "pghybrid" in capsys.readouterr().out
+
+
+def test_no_subcommand_prints_help_and_fails(capsys):
+    assert run() == 1
+    assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_sql_needs_no_database(capsys, monkeypatch):
+    """`pghybrid sql` exists so the statement can be read without a server anywhere."""
+    monkeypatch.delenv("PGHYBRID_DSN", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert run("sql", "--table", "chunks", "--tsvector-column", "fts", QUERY) == 0
+    out = capsys.readouterr().out
+    assert "WITH vector_candidates" in out and "FULL OUTER JOIN" in out
+
+
+def test_sql_paramstyle_switches_the_placeholders(capsys):
+    run("sql", "--table", "c", "--paramstyle", "pyformat", "hi")
+    assert "%s" in capsys.readouterr().out
+    run("sql", "--table", "c", "--paramstyle", "numeric", "hi")
+    assert "$1" in capsys.readouterr().out
+
+
+def test_a_hostile_table_name_is_refused_without_a_traceback(capsys):
+    assert run("sql", "--table", 'bad"; DROP TABLE users; --') == 2
+    assert "not a valid Postgres identifier" in capsys.readouterr().err
+
+
+def test_missing_connection_string_says_which_variables_it_reads(capsys, monkeypatch):
+    monkeypatch.delenv("PGHYBRID_DSN", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert run("search", "--table", TABLE, "hi") == 2
+    error = capsys.readouterr().err
+    assert "PGHYBRID_DSN" in error and "DATABASE_URL" in error
+
+
+# --------------------------------------------------------------------- against a server
+
+
+@needs_database
+def test_search_finds_the_planted_answer(capsys):
+    assert (
+        run(
+            "search",
+            QUERY,
+            "--table",
+            TABLE,
+            "--embedding-from",
+            "1",
+            "--limit",
+            "3",
+            "--label",
+            "title",
+        )
+        == 0
+    )
+    assert ANSWER in capsys.readouterr().out
+
+
+@needs_database
+def test_search_without_an_embedding_says_it_is_running_one_signal(capsys):
+    """Silently returning half a hybrid search would be the worst possible default."""
+    assert run("search", QUERY, "--table", TABLE, "--limit", "2", "--label", "title") == 0
+    out = capsys.readouterr().out
+    assert "keyword signal alone" in out
+
+
+@needs_database
+def test_search_json_is_machine_readable(capsys):
+    assert (
+        run("search", QUERY, "--table", TABLE, "--embedding-from", "1", "--limit", "2", "--json")
+        == 0
+    )
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 2
+    assert {"id", "score", "vector_rank", "text_rank", "matched_by"} <= set(rows[0])
+
+
+@needs_database
+def test_explain_shows_the_near_miss_band_and_find(capsys):
+    assert (
+        run(
+            "explain",
+            QUERY,
+            "--table",
+            TABLE,
+            "--embedding-from",
+            "1",
+            "--limit",
+            "2",
+            "--near-miss",
+            "3",
+            "--label",
+            "title",
+            "--find",
+            "sixty days written notice",
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "near miss" in out
+    assert "find" in out and "sixty days written notice" in out
+
+
+@needs_database
+def test_explain_find_reports_text_that_is_not_there(capsys):
+    assert (
+        run(
+            "explain",
+            QUERY,
+            "--table",
+            TABLE,
+            "--embedding-from",
+            "1",
+            "--limit",
+            "2",
+            "--label",
+            "title",
+            "--find",
+            "force majeure pandemic clause",
+        )
+        == 0
+    )
+    assert "no row in" in capsys.readouterr().out
+
+
+@needs_database
+def test_init_prints_statements_and_does_not_apply_them(capsys, connection_for_cli):
+    before = connection_for_cli.execute(
+        "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)
+    ).fetchone()["n"]
+    assert run("init", "--table", TABLE) == 0
+    after = connection_for_cli.execute(
+        "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)
+    ).fetchone()["n"]
+    assert before == after, "init without --apply must not change anything"
+    assert "table" in capsys.readouterr().out
+
+
+@needs_database
+def test_doctor_is_read_only(capsys, connection_for_cli):
+    before = connection_for_cli.execute(
+        "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)
+    ).fetchone()["n"]
+    assert run("doctor", "--table", TABLE, "--sample", "3", "--k", "2") == 0
+    after = connection_for_cli.execute(
+        "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)
+    ).fetchone()["n"]
+    assert before == after
+    assert "read-only" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------------- error paths
+
+
+@needs_database
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (("search", "x", "--table", "no_such_table"), "does not exist"),
+        (("search", "x", "--table", TABLE, "--embedding", "not json"), "valid JSON"),
+        (("search", "x", "--table", TABLE, "--embedding", "[]"), "non-empty"),
+        (("search", "x", "--table", TABLE, "--embedding", '["a"]'), "only numbers"),
+        (("search", "x", "--table", TABLE, "--embedding-from", "999999"), "no row with"),
+        (("search", "x", "--table", TABLE, "--weights", "nonsense"), "two numbers"),
+        (("search", "x", "--table", TABLE, "--recency", "nonsense"), "half-life"),
+        (
+            ("search", "x", "--table", TABLE, "--language", "english'); DROP TABLE chunks; --"),
+            "text search configuration",
+        ),
+    ],
+)
+def test_bad_input_is_a_message_not_a_traceback(capsys, argv, expected):
+    """Every one of these used to be, or could become, a stack trace.
+
+    The language case is the one that matters most: it is the injection that reached the
+    statement because the CLI applied overrides with setattr and so skipped validation.
+    """
+    assert run(*argv) == 2
+    error = capsys.readouterr().err
+    assert expected in error
+    assert "Traceback" not in error
+
+
+@needs_database
+def test_the_table_survives_a_hostile_language(connection_for_cli):
+    run("search", "x", "--table", TABLE, "--language", "english'); DROP TABLE chunks; --")
+    remaining = connection_for_cli.execute(f"SELECT count(*) AS n FROM {TABLE}").fetchone()["n"]
+    assert remaining > 0, "the injection ran"

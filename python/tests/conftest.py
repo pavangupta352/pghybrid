@@ -45,3 +45,20 @@ def make_config() -> Callable[..., Config]:
 def config(make_config: Callable[..., Config]) -> Config:
     """The canonical Config, for the many tests that never need to vary it."""
     return make_config()
+
+
+@pytest.fixture
+def connection_for_cli():
+    """A separate connection for CLI tests to inspect the database with.
+
+    The CLI opens its own, so the tests need one of their own to check that a command
+    left the schema alone.
+    """
+    import os
+
+    psycopg = pytest.importorskip("psycopg")
+    dsn = os.environ.get(
+        "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+    )
+    with psycopg.connect(dsn, autocommit=True, row_factory=psycopg.rows.dict_row) as conn:
+        yield conn
