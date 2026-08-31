@@ -38,10 +38,23 @@ def reachable() -> bool:
 needs_database = pytest.mark.skipif(not reachable(), reason=f"no Postgres at {DSN}")
 
 
+def with_database(func):
+    """skipif plus a marker the seeding fixture can detect."""
+    return pytest.mark.needs_database(needs_database(func))
+
+
 @pytest.fixture(autouse=True)
 def dsn_in_environment(monkeypatch):
     """The CLI reads PGHYBRID_DSN, so every test gets it unless it is testing its absence."""
     monkeypatch.setenv("PGHYBRID_DSN", DSN)
+
+
+@pytest.fixture(autouse=True)
+def _seeded(request):
+    """Every test that needs a server also needs the corpus, and must not assume another
+    module put it there."""
+    if any(mark.name == "needs_database" for mark in request.node.iter_markers()):
+        request.getfixturevalue("demo_table")
 
 
 def run(*argv: str) -> int:
@@ -93,7 +106,7 @@ def test_missing_connection_string_says_which_variables_it_reads(capsys, monkeyp
 # --------------------------------------------------------------------- against a server
 
 
-@needs_database
+@with_database
 def test_search_finds_the_planted_answer(capsys):
     assert (
         run(
@@ -113,7 +126,7 @@ def test_search_finds_the_planted_answer(capsys):
     assert ANSWER in capsys.readouterr().out
 
 
-@needs_database
+@with_database
 def test_search_without_an_embedding_says_it_is_running_one_signal(capsys):
     """Silently returning half a hybrid search would be the worst possible default."""
     assert run("search", QUERY, "--table", TABLE, "--limit", "2", "--label", "title") == 0
@@ -121,7 +134,7 @@ def test_search_without_an_embedding_says_it_is_running_one_signal(capsys):
     assert "keyword signal alone" in out
 
 
-@needs_database
+@with_database
 def test_search_json_is_machine_readable(capsys):
     assert (
         run("search", QUERY, "--table", TABLE, "--embedding-from", "1", "--limit", "2", "--json")
@@ -132,7 +145,7 @@ def test_search_json_is_machine_readable(capsys):
     assert {"id", "score", "vector_rank", "text_rank", "matched_by"} <= set(rows[0])
 
 
-@needs_database
+@with_database
 def test_explain_shows_the_near_miss_band_and_find(capsys):
     assert (
         run(
@@ -158,7 +171,7 @@ def test_explain_shows_the_near_miss_band_and_find(capsys):
     assert "find" in out and "sixty days written notice" in out
 
 
-@needs_database
+@with_database
 def test_explain_find_reports_text_that_is_not_there(capsys):
     assert (
         run(
@@ -180,7 +193,7 @@ def test_explain_find_reports_text_that_is_not_there(capsys):
     assert "no row in" in capsys.readouterr().out
 
 
-@needs_database
+@with_database
 def test_init_prints_statements_and_does_not_apply_them(capsys, connection_for_cli):
     before = connection_for_cli.execute(
         "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)
@@ -193,7 +206,7 @@ def test_init_prints_statements_and_does_not_apply_them(capsys, connection_for_c
     assert "table" in capsys.readouterr().out
 
 
-@needs_database
+@with_database
 def test_doctor_is_read_only(capsys, connection_for_cli):
     before = connection_for_cli.execute(
         "SELECT count(*) AS n FROM pg_indexes WHERE tablename = %s", (TABLE,)
@@ -209,7 +222,7 @@ def test_doctor_is_read_only(capsys, connection_for_cli):
 # ------------------------------------------------------------------------- error paths
 
 
-@needs_database
+@with_database
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
@@ -238,7 +251,7 @@ def test_bad_input_is_a_message_not_a_traceback(capsys, argv, expected):
     assert "Traceback" not in error
 
 
-@needs_database
+@with_database
 def test_the_table_survives_a_hostile_language(connection_for_cli):
     run("search", "x", "--table", TABLE, "--language", "english'); DROP TABLE chunks; --")
     remaining = connection_for_cli.execute(f"SELECT count(*) AS n FROM {TABLE}").fetchone()["n"]

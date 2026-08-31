@@ -47,8 +47,45 @@ def config(make_config: Callable[..., Config]) -> Config:
     return make_config()
 
 
+@pytest.fixture(scope="session")
+def demo_table():
+    """Create and seed the demo corpus once per session.
+
+    It used to be created by a module-scoped fixture inside test_integration.py, which
+    made every other module that touched it depend on collection order — the CLI tests
+    passed locally against a database left seeded by an earlier run, and failed in CI
+    where the ordering put them first. A shared session fixture is the fix: no module
+    relies on another's side effects.
+    """
+    import os
+    import pathlib as _pathlib
+    import sys as _sys
+
+    psycopg = pytest.importorskip("psycopg")
+    dsn = os.environ.get(
+        "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
+    )
+    try:
+        connection = psycopg.connect(dsn, autocommit=True)
+    except Exception:  # pragma: no cover - depends on the environment
+        pytest.skip(f"no Postgres at {dsn}")
+
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[2] / "scripts"))
+    from seed_demo import DOCUMENTS, SCHEMA, to_pgvector, unit_vector
+
+    with connection:
+        connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        connection.execute(SCHEMA)
+        for angle, title, content in DOCUMENTS:
+            connection.execute(
+                "INSERT INTO chunks (title, content, embedding) VALUES (%s, %s, %s)",
+                (title, content, to_pgvector(unit_vector(angle))),
+            )
+    yield dsn
+
+
 @pytest.fixture
-def connection_for_cli():
+def connection_for_cli(demo_table):
     """A separate connection for CLI tests to inspect the database with.
 
     The CLI opens its own, so the tests need one of their own to check that a command

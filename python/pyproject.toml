@@ -74,7 +74,10 @@ artifacts = ["src/pghybrid/py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: requires a live Postgres with pgvector"]
+markers = [
+    "integration: requires a live Postgres with pgvector",
+    "needs_database: the test talks to a server and needs the demo corpus seeded",
+]
 asyncio_mode = "auto"
 
 [tool.ruff]
