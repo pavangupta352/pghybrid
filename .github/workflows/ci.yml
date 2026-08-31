@@ -148,6 +148,11 @@ jobs:
       # the code does not produce. This is what keeps that true.
       - name: Demo image still matches a live query
         run: python/.venv/bin/python scripts/make_demo_svg.py --check
+      # The examples are the shortest path from reading to running, so they are run too.
+      - name: Examples still work
+        run: |
+          python/.venv/bin/python examples/three_way_comparison.py
+          python/.venv/bin/python examples/langchain_retriever.py
 
   gitleaks:
     name: secret scan

@@ -26,13 +26,13 @@ import psycopg
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+from seed_demo import DEMO_QUERY, PLANTED_TITLE, query_vector  # noqa: E402
+from seed_demo import main as seed
+
 from pghybrid import Config  # noqa: E402
 from pghybrid.search import HybridSearch  # noqa: E402
-from seed_demo import DEMO_QUERY, PLANTED_TITLE, main as seed, query_vector  # noqa: E402
 
-DSN = os.environ.get(
-    "PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid"
-)
+DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
 ROWS = 5
 
 

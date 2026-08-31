@@ -32,7 +32,8 @@ both, and first on neither — which is exactly the case rank fusion exists to f
 That image is generated from a live query by
 [`scripts/make_demo_svg.py`](scripts/make_demo_svg.py), which refuses to draw itself if
 fusion stops surfacing the right clause. Reproduce it yourself in about a minute:
-[`examples/`](examples/).
+[`examples/`](examples/) — which also shows [using pghybrid as a LangChain
+retriever](examples/langchain_retriever.py) in about twenty lines.
 
 ## Why this exists
 
