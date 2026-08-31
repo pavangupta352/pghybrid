@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import re
 import statistics
 import sys
 import time
@@ -30,6 +31,7 @@ from typing import Any, Callable
 import psycopg
 
 from pghybrid import Config, HybridSearch
+from pghybrid.sql import build_search_sql
 
 DSN = os.environ.get("PGHYBRID_TEST_DSN", "postgresql://postgres:pghybrid@localhost:55432/pghybrid")
 TABLE = "benchmark_chunks"
@@ -154,6 +156,36 @@ def time_modes(
     return results
 
 
+def server_times(
+    connection: Any, statements: dict[str, tuple[str, list[Any]]], runs: int
+) -> dict[str, float]:
+    """Median server-side execution time per mode, from EXPLAIN ANALYZE.
+
+    Worth reporting alongside the wall-clock figures because the two disagree, and the
+    disagreement is informative. Keyword-only measures slower than hybrid end to end
+    while the server says the opposite — which it should, since hybrid runs the same
+    keyword CTE plus a vector one. The difference sits outside the server: not in
+    planning, row count, payload size or result types, all of which were checked. Until
+    someone explains it, the server column is the one that describes the query.
+    """
+    medians: dict[str, float] = {}
+    for label, (sql, params) in statements.items():
+        samples: list[float] = []
+        for _ in range(runs):
+            # This connection uses a mapping row factory, so the single EXPLAIN column
+            # is reached by value rather than by position.
+            plan = "\n".join(
+                str(next(iter(row.values())))
+                for row in connection.execute("EXPLAIN (ANALYZE) " + sql, params)
+            )
+            found = re.search(r"Execution Time: ([0-9.]+)", plan)
+            if found:
+                samples.append(float(found.group(1)))
+        if samples:
+            medians[label] = statistics.median(samples)
+    return medians
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--rows", type=int, default=100_000)
@@ -217,12 +249,27 @@ def main() -> int:
             f"{len(queries)} rotating queries"
         )
         print()
-        print(f"  {'mode':<16}{'p50':>10}{'p95':>10}")
-        print("  " + "-" * 36)
-
         timings = time_modes(modes, args.runs, args.warmup)
+
+        statements = {
+            "vector only": build_search_sql(
+                search.config, embedding=vectors[0], text=None, limit=args.limit
+            ),
+            "keyword only": build_search_sql(
+                search.config, embedding=None, text=queries[0], limit=args.limit
+            ),
+            "hybrid (both)": build_search_sql(
+                search.config, embedding=vectors[0], text=queries[0], limit=args.limit
+            ),
+        }
+        server = server_times(connection, statements, max(20, args.runs // 10))
+
+        print(f"  {'mode':<16}{'p50':>10}{'p95':>10}{'server p50':>14}")
+        print("  " + "-" * 50)
         for label, (p50, p95) in timings.items():
-            print(f"  {label:<16}{p50:>9.2f}ms{p95:>9.2f}ms")
+            srv = server.get(label)
+            srv_text = f"{srv:>11.2f}ms" if srv is not None else f"{'-':>13}"
+            print(f"  {label:<16}{p50:>9.2f}ms{p95:>9.2f}ms{srv_text}")
 
         vector_p50 = timings["vector only"][0]
         hybrid_p50 = timings["hybrid (both)"][0]
@@ -233,7 +280,8 @@ def main() -> int:
             f"({overhead / vector_p50 * 100:+.0f}% over vector-only)."
         )
         print(
-            "  Latency is measured client-side, so each figure includes one round trip.\n"
+            "  The first two columns are wall-clock from the client, so they include a\n"
+            "  round trip; the last is what the server reports for the same statement.\n"
             "  Embeddings here are random, which is the worst case for an approximate\n"
             "  index; real embeddings cluster and search faster."
         )

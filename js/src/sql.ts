@@ -518,7 +518,12 @@ function fusionClause(
         `           ${vectorContribution} AS vector_contribution,\n` +
         "           NULL::bigint AS text_rank,\n" +
         "           NULL::double precision AS text_score,\n" +
-        "           0.0 AS text_contribution",
+        // A bare 0.0 is numeric in Postgres, not float8. That made vector_contribution
+        // come back as a Decimal on a text-only query and a float on a hybrid one — the
+        // same field, two types — and cost about 3ms per query in client-side decoding,
+        // which is why keyword-only measured slower than hybrid while doing strictly
+        // less work on the server.
+        "           0.0::float8 AS text_contribution",
       "vector_candidates v",
     ];
   }
@@ -526,7 +531,7 @@ function fusionClause(
     "t.id AS id,\n" +
       "           NULL::bigint AS vector_rank,\n" +
       "           NULL::double precision AS vector_distance,\n" +
-      "           0.0 AS vector_contribution,\n" +
+      "           0.0::float8 AS vector_contribution,\n" +
       "           t.rank AS text_rank,\n" +
       "           t.score AS text_score,\n" +
       `           ${textContribution} AS text_contribution`,

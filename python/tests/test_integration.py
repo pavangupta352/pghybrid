@@ -609,3 +609,42 @@ def test_a_query_config_must_match_the_column_config(connection, french_table):
     # With a vector alongside, the search still returns rows — from one signal only.
     degraded = simple.search("locataire", embedding=query_vector(), limit=3)
     assert degraded and all(row.text_rank is None for row in degraded)
+
+
+def test_every_mode_returns_the_same_python_types(connection, config):
+    """A field's type must not depend on which signals the caller used.
+
+    A bare ``0.0`` is numeric in Postgres, not float8, so the single-signal branches
+    used to return ``vector_contribution`` as a Decimal while the hybrid branch returned
+    a float. Callers do arithmetic on these — and ``Decimal + float`` raises TypeError,
+    so code that worked on a hybrid query blew up on a text-only one. It also cost about
+    3ms per query in client-side decoding, which showed up as keyword-only measuring
+    slower than hybrid despite doing strictly less work on the server.
+    """
+    search = HybridSearch(
+        config, execute=lambda sql, params: connection.execute(sql, params).fetchall()
+    )
+    numeric_fields = (
+        "score",
+        "fused_score",
+        "vector_contribution",
+        "text_contribution",
+    )
+
+    modes = {
+        "hybrid": search.search(DEMO_QUERY, embedding=query_vector(), limit=3),
+        "vector only": search.search(None, embedding=query_vector(), limit=3),
+        "keyword only": search.search(DEMO_QUERY, limit=3),
+    }
+
+    for label, results in modes.items():
+        assert results, f"{label} returned nothing"
+        for field in numeric_fields:
+            value = getattr(results[0], field)
+            assert isinstance(value, float), (
+                f"{label}: {field} came back as {type(value).__name__}, not float. "
+                "A bare numeric literal in the fusion will do this."
+            )
+            # The point of the type, not just its name: it has to survive arithmetic
+            # against a plain float.
+            assert value + 0.5 == pytest.approx(value + 0.5)

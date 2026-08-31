@@ -343,15 +343,15 @@ $ python scripts/benchmark.py
 
   PostgreSQL 17.11 (Debian 17.11-1.pgdg12+2) on aarch64-unknown-linux-gnu, pgvector 0.8.6
   100,000 rows x 384 dimensions, top 10
-  400 interleaved runs in shuffled order after 40 warmups, 5 rotating queries
+  300 interleaved runs in shuffled order after 30 warmups, 5 rotating queries
 
-  mode                   p50       p95
-  ------------------------------------
-  vector only          2.12ms     2.87ms
-  keyword only         7.78ms    12.93ms
-  hybrid (both)        5.72ms     8.68ms
+  mode                   p50       p95    server p50
+  --------------------------------------------------
+  vector only          2.09ms     2.64ms       0.49ms
+  keyword only         7.11ms    11.86ms       3.73ms
+  hybrid (both)        5.41ms     7.85ms       4.49ms
 
-  Adding the keyword signal costs +3.60ms at p50 (+170% over vector-only).
+  Adding the keyword signal costs +3.32ms at p50 (+159% over vector-only).
 ```
 
 Reproduce it with [`scripts/benchmark.py`](scripts/benchmark.py) — that block is its
@@ -367,16 +367,17 @@ Three things worth knowing before you read those numbers:
   That number described the fixture, not Postgres.
 - **Embeddings are random**, which is the worst case for an approximate index. Real
   embeddings cluster and search faster, so treat the vector figure as an upper bound.
-- **Keyword-only measures slower than hybrid, and I cannot fully explain it.** It is
-  reproducible — the modes are interleaved in shuffled order, and it survives giving each
-  mode independent queries so neither warms the other's pages. But a warmed
-  `EXPLAIN ANALYZE` of the two shows the same bitmap scan over the same 2,952 buffers and
-  near-identical execution times, so the mechanism is not the one I first wrote here (a
-  sort-versus-hash difference that turned out to be an artifact of an older query shape).
-  Reported rather than explained away.
+- **The wall-clock and server columns disagree about keyword-only, and only the server
+  column makes sense.** Server-side the three modes line up exactly as they should —
+  hybrid runs the same keyword CTE plus a vector one, so it costs the most. End to end,
+  keyword-only measures *slower* than hybrid, reproducibly, and the difference sits
+  outside the server: not in planning, row count, result size, statement size or result
+  types, all of which were checked and are equal or favour keyword-only. I do not have an
+  explanation, so both columns are printed rather than the flattering one.
 
-The comparison that matters for a decision is the first and third rows: adding keyword
-search to an existing vector search costs a few milliseconds at this size.
+For a decision, read the server column and compare the first and third rows: adding
+keyword search to an existing vector search roughly doubles the work Postgres does, from
+0.49ms to 4.49ms at this size, and both are small.
 
 ## The generated SQL
 
