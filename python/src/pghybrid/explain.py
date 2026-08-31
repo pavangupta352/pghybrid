@@ -42,6 +42,7 @@ from .sql import (
     _tsvector_expr,
     quote_ident,
 )
+from .textquery import parse_query
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle exists only for type checkers
     from .search import AsyncHybridSearch, HybridSearch
@@ -796,6 +797,12 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
     ctes: list[str] = []
     target_from = table
 
+    # A negative term removes the row from both candidate sets, so "why is it missing"
+    # has to be able to answer "because you excluded it". Without this the row looks like
+    # it merely ranked too low, and the advice is to raise candidate_limit — a knob that
+    # can never bring back a row the query itself threw out.
+    excluded_terms = parse_query(plan.text).negative[: cfg.max_query_terms] if plan.text else []
+
     if plan.text is not None:
         ctes.append(f"_find_q AS (\n    SELECT {_tsquery_expr(cfg, plan.text, params)} AS tsq\n)")
         target_from = f"{table}, _find_q"
@@ -805,6 +812,16 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
     else:
         text_matches = "NULL::boolean"
         text_score = "NULL::double precision"
+
+    if excluded_terms:
+        negatives = " || ".join(
+            f"{cfg.query_parser}('{cfg.language}', {params.add(term)})" for term in excluded_terms
+        )
+        if len(excluded_terms) > 1:
+            negatives = f"({negatives})"
+        excluded = f"coalesce({_tsvector_expr(cfg)} @@ {negatives}, false)"
+    else:
+        excluded = "false"
 
     if plan.embedding is not None:
         vector = params.add_cast(_format_vector(plan.embedding), cfg.vector_type)
@@ -821,7 +838,8 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
         f"           {distance} AS distance,\n"
         f"           {text_matches} AS text_matches,\n"
         f"           {text_score} AS text_score,\n"
-        f"           ({filter_expr}) AS passes_filters\n"
+        f"           ({filter_expr}) AS passes_filters,\n"
+        f"           {excluded} AS excluded_by_query\n"
         f"    FROM {target_from}\n"
         f"    WHERE {contains}\n"
         f"    ORDER BY ({exact}) DESC{filter_order}, {id_col}\n"
@@ -867,6 +885,7 @@ def _locate_sql(plan: _Plan) -> tuple[str, list[Any]]:
         "       t.text_matches,\n"
         "       t.text_score,\n"
         "       t.passes_filters,\n"
+        "       t.excluded_by_query,\n"
         "       (SELECT n FROM _find_matches) AS match_count,\n"
         "       (SELECT rank FROM _find_vector_rank) AS global_vector_rank,\n"
         "       (SELECT rank FROM _find_text_rank) AS global_text_rank\n"
@@ -900,6 +919,7 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
     embedding_missing = bool(row.get("embedding_missing"))
     text_matches = bool(row.get("text_matches"))
     passes_filters = bool(row.get("passes_filters"))
+    excluded_by_query = bool(row.get("excluded_by_query"))
     match_count = int(row.get("match_count") or 1)
 
     # A rank is only meaningful when the signal could produce one, and when the row is
@@ -925,6 +945,7 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
         embedding_missing=embedding_missing,
         text_matches=text_matches,
         passes_filters=passes_filters,
+        excluded_by_query=excluded_by_query,
         vector_rank=vector_rank,
         text_rank=text_rank,
     )
@@ -960,6 +981,7 @@ def _diagnose(
     embedding_missing: bool,
     text_matches: bool,
     passes_filters: bool,
+    excluded_by_query: bool,
     vector_rank: int | None,
     text_rank: int | None,
 ) -> tuple[str, str | None]:
@@ -972,6 +994,14 @@ def _diagnose(
     """
     cut = report.candidate_limit
     row = f"row {identifier}"
+
+    if excluded_by_query:
+        # Named before the filters and before any ranking talk, because it is the one
+        # cause that is written in the query the caller just typed.
+        return (
+            f"{row} matches a term you excluded with a leading -, so the query removed it",
+            "drop that term from the query; no amount of candidate_limit brings it back",
+        )
 
     if not passes_filters:
         return (

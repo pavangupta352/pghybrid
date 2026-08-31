@@ -64,6 +64,11 @@ First release.
   80 and never showed 9 rows that a single `limit=80` query returns — duplicates and gaps
   in a search UI, with nothing to indicate anything was wrong.
 
+- `explain(find=...)` names an exclusion as the reason a row is missing. It used to see a
+  row that was #1 on both signals and absent from the result, conclude it had lost the
+  fused ordering, and advise raising `candidate_limit` — a knob that can never bring back
+  a row the query itself removed. The real reason was the `-term` in the query string the
+  caller had just typed.
 - A column selected through to the result can no longer be named like one the statement
   computes. Postgres permits two output columns with the same name and the driver keeps
   the last, which is the table's, so the computed value disappeared without an error:

@@ -722,6 +722,66 @@ def test_find_separates_never_indexed_from_outranked(search):
     )
 
 
+def test_find_names_the_exclusion_rather_than_blaming_the_cut_off(connection, config, search):
+    """find exists to name the stage that lost the answer, so naming the wrong one is worse
+    than saying nothing.
+
+    A negative term removes the row from both candidate sets. Before this, find saw a row
+    that was #1 on both signals and absent from the result, concluded it must have lost the
+    fused ordering, and advised raising candidate_limit — a knob that can never bring back a
+    row the query itself threw out. The real reason was in the query string the caller had
+    just typed.
+    """
+    report = explain(
+        search,
+        f"{DEMO_QUERY} -pricing",
+        query_vector(),
+        limit=2,
+        near_miss=0,
+        label_column="title",
+        find="Renewal pricing is subject to change",
+    )
+    assert report.find is not None and report.find.found
+    assert "excluded" in report.find.reason, report.find.reason
+    assert "candidate_limit" not in report.find.reason
+    assert report.find.remedy and "drop that term" in report.find.remedy
+
+    # And without the exclusion the same row is diagnosed the ordinary way.
+    ordinary = explain(
+        search,
+        DEMO_QUERY,
+        query_vector(),
+        limit=2,
+        near_miss=0,
+        label_column="title",
+        find="Renewal pricing is subject to change",
+    )
+    assert ordinary.find is not None
+    assert "excluded" not in ordinary.find.reason, ordinary.find.reason
+
+
+def test_find_still_blames_the_filters_when_the_filters_are_to_blame(connection, config):
+    """The exclusion branch is checked first, so this makes sure it did not swallow the
+    filter case that was already there."""
+    connection.execute("UPDATE chunks SET tenant_id = 2 WHERE title = 'Renewal pricing'")
+    try:
+        search = HybridSearch(config, execute=lambda sql, p: connection.execute(sql, p).fetchall())
+        report = explain(
+            search,
+            DEMO_QUERY,
+            query_vector(),
+            limit=2,
+            near_miss=0,
+            label_column="title",
+            find="Renewal pricing is subject to change",
+            filters={"tenant_id": 1},
+        )
+        assert report.find is not None
+        assert "filters" in report.find.reason, report.find.reason
+    finally:
+        connection.execute("UPDATE chunks SET tenant_id = 1")
+
+
 def test_explain_renders_without_crashing_on_a_single_signal(search):
     for text, embedding in ((DEMO_QUERY, None), (None, query_vector())):
         report = explain(search, text, embedding, limit=3, near_miss=2, label_column="title")
