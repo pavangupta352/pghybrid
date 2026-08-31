@@ -6,8 +6,8 @@ Vector similarity + full-text search, combined by Reciprocal Rank Fusion, on pla
 `pgvector`. No `pg_search`, no VectorChord, no Elasticsearch, no vector database, no
 extension you need superuser to install.
 
-<!-- Registry badges are added at the first release. Until the packages exist,
-     shields.io renders them as red "package not found", which reads as broken. -->
+[![PyPI](https://img.shields.io/pypi/v/pghybrid?color=306998&label=pypi)](https://pypi.org/project/pghybrid/)
+[![npm](https://img.shields.io/npm/v/pghybrid?color=cb3837&label=npm)](https://www.npmjs.com/package/pghybrid)
 [![CI](https://github.com/pavangupta352/pghybrid/actions/workflows/ci.yml/badge.svg)](https://github.com/pavangupta352/pghybrid/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Postgres 12+](https://img.shields.io/badge/postgres-12%2B-336791)](https://www.postgresql.org/)
