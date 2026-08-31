@@ -459,6 +459,17 @@ stock `pgvector/pgvector:pg17` image with only `plpgsql` and `vector` installed.
   README is a good one and this project's `explain` owes it a debt.
 - The near-miss band is an idea worth stealing from every query planner ever written.
 
+## Coming from something else
+
+- **[pgai is archived](docs/guides/migrating-from-pgai.md)** — 5,800 stars and no
+  maintainer since February 2026. Your store table and view are ordinary Postgres and
+  keep working; this covers what pghybrid replaces (the search) and what it does not
+  (the vectorizer), so you do not migrate away from a feature you actually use.
+- **[Neon removed `pg_search` for new projects](docs/guides/neon-pg-search-removed.md)** —
+  dated 19 March 2026, with the before/after rewrite of a `pg_search` hybrid query.
+- **[Hybrid search on Supabase](docs/guides/supabase.md)** — copy-paste SQL, no extension
+  and no package required.
+
 ## Contributing
 
 Bug reports and pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The test

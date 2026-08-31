@@ -648,3 +648,82 @@ def test_every_mode_returns_the_same_python_types(connection, config):
             # The point of the type, not just its name: it has to survive arithmetic
             # against a plain float.
             assert value + 0.5 == pytest.approx(value + 0.5)
+
+
+# ------------------------------------------------- tables nobody has migrated yet
+
+
+@pytest.fixture
+def unmigrated(connection):
+    """A table with embeddings and text but no tsvector column and no indexes.
+
+    This is what everyone has before they run init, and searching it is the first thing
+    anyone tries.
+    """
+    connection.execute("DROP VIEW IF EXISTS unmigrated_view CASCADE")
+    connection.execute("DROP TABLE IF EXISTS unmigrated CASCADE")
+    connection.execute(
+        """CREATE TABLE unmigrated (
+               id bigserial PRIMARY KEY, title text NOT NULL,
+               body text NOT NULL, embedding vector(8))"""
+    )
+    for angle, title, content in DOCUMENTS[:6]:
+        connection.execute(
+            "INSERT INTO unmigrated (title, body, embedding) VALUES (%s, %s, %s)",
+            (title, content, to_pgvector(unit_vector(angle))),
+        )
+    connection.execute(
+        """CREATE VIEW unmigrated_view AS
+               SELECT id, title, body, embedding FROM unmigrated"""
+    )
+    yield
+    connection.execute("DROP VIEW IF EXISTS unmigrated_view CASCADE")
+    connection.execute("DROP TABLE IF EXISTS unmigrated CASCADE")
+
+
+def test_search_works_before_anyone_runs_init(connection, unmigrated):
+    """suggest_config must not name a tsvector column that does not exist yet.
+
+    It used to return the name the migration *would* create, and because the same config
+    is what you search with, every first query died on `column "fts" does not exist`.
+    With no stored column the builder computes to_tsvector inline, which is slower and
+    correct.
+    """
+    config = suggest_config(introspect(dbapi_executor(connection), "unmigrated"))
+    assert config.tsvector_column is None, (
+        "a table with no tsvector column must produce a config that computes it inline"
+    )
+    config.paramstyle = "pyformat"
+    config.extra_columns = ["title"]
+
+    search = HybridSearch(
+        config, execute=lambda sql, params: connection.execute(sql, params).fetchall()
+    )
+    results = search.search(DEMO_QUERY, embedding=query_vector(), limit=3)
+    assert results and results[0].score > 0
+
+
+def test_a_view_can_be_searched_but_not_indexed(connection, unmigrated):
+    """Views are searchable. pgai's default destination leaves you one.
+
+    Its `destination_table` creates a store table *and* a view joining it to the source,
+    and the view is the obvious thing to point a search at. Refusing views turned that
+    into a dead end at the first step.
+    """
+    info = introspect(dbapi_executor(connection), "unmigrated_view")
+    assert info.kind == "v"
+    assert not info.is_indexable
+
+    config = suggest_config(info)
+    config.paramstyle = "pyformat"
+    config.extra_columns = ["title"]
+    search = HybridSearch(
+        config, execute=lambda sql, params: connection.execute(sql, params).fetchall()
+    )
+    assert search.search(DEMO_QUERY, embedding=query_vector(), limit=3)
+
+    # No DDL, because none of it would apply — just a pointer to where indexes belong.
+    statements = build_migration(config, info)
+    assert all(s.optional for s in statements)
+    assert any("cannot carry an index" in s.reason for s in statements)
+    assert not any(s.sql.strip().upper().startswith(("ALTER", "CREATE")) for s in statements)

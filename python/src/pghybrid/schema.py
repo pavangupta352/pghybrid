@@ -274,6 +274,15 @@ class TableInfo:
     def is_partitioned(self) -> bool:
         return self.kind == "p"
 
+    @property
+    def is_indexable(self) -> bool:
+        """Whether CREATE INDEX can target this relation at all.
+
+        A view can be searched but not indexed; the indexes that matter live on the
+        table underneath it.
+        """
+        return self.kind in _INDEXABLE_KINDS
+
     def column(self, name: Optional[str]) -> Optional[ColumnInfo]:
         for column in self.columns:
             if column.name == name:
@@ -377,6 +386,11 @@ class Statement:
 
     def to_text(self, *, concurrent: bool = False) -> str:
         """The statement as it would appear in a migration file, comments included."""
+        if self.kind == "note":
+            # Nothing to run: the reason is the whole content, so printing a stub
+            # statement under it would only look like something to copy.
+            return "\n".join([f"-- {self.reason}", *(f"--   {n}" for n in self.notes)])
+
         lines = [f"-- {self.reason}"]
         for note in self.notes:
             lines.append(f"--   {note}")
@@ -536,10 +550,10 @@ def introspect(execute: Execute, table: str) -> TableInfo:
         raise TableNotFound(_missing_table_message(run, table))
     oid, schema, name, kind, reltuples, table_size, indexes_size = row[0]
 
-    if kind not in ("r", "p", "m", "f"):
+    if kind not in _SEARCHABLE_KINDS:
         raise TableNotFound(
             f"{table!r} exists but is a {_RELKIND_NAMES.get(kind, kind)}, which cannot "
-            "be indexed for search. Point pghybrid at the underlying table."
+            "be searched. Point pghybrid at a table or a view over one."
         )
 
     columns = _read_columns(run, oid)
@@ -585,6 +599,16 @@ def introspect(execute: Execute, table: str) -> TableInfo:
         server_version=str(server_text or ""),
     )
 
+
+#: Relations a query can read. A view is perfectly searchable even though nothing can be
+#: indexed on it, and refusing them blocked a real path: pgai's default destination
+#: creates a store table *and* a view joining it to the source, and the view is the
+#: obvious thing to point a search at.
+_SEARCHABLE_KINDS = frozenset({"r", "p", "m", "f", "v"})
+
+#: Relations an index can be built on. Everything else gets its migration refused, with
+#: the underlying table named, rather than emitting DDL Postgres will reject.
+_INDEXABLE_KINDS = frozenset({"r", "p", "m"})
 
 _RELKIND_NAMES = {
     "v": "view",
@@ -809,11 +833,12 @@ def suggest_config(info: TableInfo) -> Config:
         text_column=text_column.name,
         vector_column=vector_column.name,
         id_column=_pick_id_column(info),
-        tsvector_column=(
-            tsvector_column.name
-            if tsvector_column
-            else _propose_tsvector_name(info, text_column.name)
-        ),
+        # None when the table has no stored tsvector, which is correct for searching:
+        # the query builder then computes to_tsvector inline and works against a table
+        # nobody has migrated yet. Naming the column the migration *would* create made
+        # every first search fail with 'column "fts" does not exist', which is the
+        # first thing a new user does. build_migration proposes the name itself.
+        tsvector_column=tsvector_column.name if tsvector_column else None,
         language=_detect_language(tsvector_column),
         vector_type=vector_type,
         metric=metric,
@@ -971,9 +996,27 @@ def build_migration(config: Config, info: TableInfo) -> list[Statement]:
 
     Only statements that would change something are returned, so re-running this after
     applying it yields an empty list. Alternatives and tuning are marked ``optional``.
+
+    A view is searchable but cannot carry an index, so it gets no DDL — only a note
+    pointing at the relation underneath, which is where the indexes belong.
     """
     statements: list[Statement] = []
     table = quote_ident(config.table)
+
+    if not info.is_indexable:
+        return [
+            Statement(
+                sql=f"-- nothing to do for {info.qualified}",
+                reason=(
+                    f"{info.qualified} is a "
+                    f"{_RELKIND_NAMES.get(info.kind, info.kind)}, which can be searched "
+                    "but cannot carry an index. Run init against the table it reads from; "
+                    "the indexes belong there and this relation will use them."
+                ),
+                kind="note",
+                optional=True,
+            )
+        ]
 
     if not info.pgvector_version:
         statements.append(
@@ -1076,7 +1119,10 @@ def _text_statements(config: Config, info: TableInfo, table: str) -> list[Statem
     # The expression the query builder computes inline when no stored column exists.
     # Both forms have to agree exactly, so it is taken from the query builder itself.
     inline = _inline_tsvector_expr(replace(config, tsvector_column=None))
-    stored = config.tsvector_column
+    # A config that came from suggest_config carries no tsvector column when the table
+    # has none, so the name to create is proposed here rather than smuggled through the
+    # config the caller also searches with.
+    stored = config.tsvector_column or _propose_tsvector_name(info, config.text_column)
     stored_column = info.column(stored) if stored else None
 
     if stored and stored_column is None:
