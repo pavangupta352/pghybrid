@@ -884,3 +884,62 @@ def test_an_embedding_too_wide_to_index_gets_the_halfvec_route(connection):
             )
     finally:
         connection.execute("DROP TABLE IF EXISTS wide CASCADE")
+
+
+# ------------------------------------------------------------------- weighted fusion
+
+
+def test_weighted_fusion_runs_and_orders_correctly_for_every_metric(connection, config):
+    """The fusion method the README argues against still has to work.
+
+    It is kept because people ask for it, and `explain` uses it to show what it does, so
+    it is a real code path — one that had only ever been checked as a generated string.
+
+    Its scores look odd and that is expected rather than broken. `1 - distance` assumes a
+    distance bounded in [0, 1], which only cosine is: `<#>` returns a *negative* inner
+    product so scores come out above 1, and L2 and L1 are unbounded so they can go
+    negative. What has to hold is the ordering, since that is what a search returns.
+    """
+    from dataclasses import replace
+
+    for metric in ("cosine", "l2", "inner_product", "l1"):
+        search = HybridSearch(
+            replace(config, fusion="weighted", metric=metric),
+            execute=lambda sql, params: connection.execute(sql, params).fetchall(),
+        )
+        results = search.search(None, embedding=query_vector(), limit=len(DOCUMENTS))
+        assert results, f"weighted fusion returned nothing for {metric}"
+
+        distances = [r.vector_distance for r in results]
+        scores = [r.score for r in results]
+        assert all(a <= b + 1e-12 for a, b in zip(distances, distances[1:])), (
+            f"{metric}: rows came back out of distance order"
+        )
+        assert all(a >= b - 1e-12 for a, b in zip(scores, scores[1:])), (
+            f"{metric}: score did not fall as distance rose, so the sign is wrong"
+        )
+
+
+def test_weighted_and_rrf_disagree_which_is_the_whole_argument(connection, config):
+    """If the two methods always agreed there would be nothing to explain."""
+    from dataclasses import replace
+
+    def titles_for(fusion: str) -> list[str]:
+        search = HybridSearch(
+            replace(config, fusion=fusion),
+            execute=lambda sql, params: connection.execute(sql, params).fetchall(),
+        )
+        return titles(search.search(DEMO_QUERY, embedding=query_vector(), limit=4))
+
+    assert titles_for("rrf") != titles_for("weighted")
+
+
+def test_explain_measures_both_fusion_methods_from_one_call(connection, config):
+    """The effective-weights table compares them, so both have to be executed."""
+    search = HybridSearch(
+        config, execute=lambda sql, params: connection.execute(sql, params).fetchall()
+    )
+    report = explain(search, DEMO_QUERY, query_vector(), limit=3, near_miss=0)
+    rendered = report.to_text()
+    assert "rrf" in rendered and "weighted" in rendered
+    assert "effective" in rendered

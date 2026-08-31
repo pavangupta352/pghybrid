@@ -416,7 +416,7 @@ Three things in it are load-bearing:
 | `tsvector_column` | `None` | a stored tsvector column. Omitted, the tsvector is computed inline: no migration needed, but no GIN index either |
 | `language` | `"english"` | text search config — **must match the one the column was built with**, see below |
 | `text_match` | `"any"` | `"any"` OR-s terms, `"all"` keeps Postgres' AND |
-| `fusion` | `"rrf"` | or `"weighted"`, kept so `explain` can show you what it does |
+| `fusion` | `"rrf"` | or `"weighted"`, kept so `explain` can show you what it does. Its scores are not a similarity: `1 - distance` assumes a distance bounded in `[0,1]`, which only cosine is, so inner product comes out above 1 and L2/L1 can go negative. The *ordering* is correct for every metric — only the scale is meaningless |
 | `k` | `60` | the RRF constant |
 | `weights` | `1.0 / 1.0` | relative influence of each signal |
 | `candidate_limit` | `50` | rows each signal contributes to the fusion |
@@ -477,6 +477,35 @@ limit is 4,000, and says why.
   scale-mismatch argument first and stated it clearly. The `effectiveWeights` idea in that
   README is a good one and this project's `explain` owes it a debt.
 - The near-miss band is an idea worth stealing from every query planner ever written.
+
+## Adding a reranker
+
+`pghybrid` does not rerank, and should not: a cross-encoder needs a model, a GPU budget
+and a latency decision, none of which belong in a query builder. But hybrid retrieval is
+the natural front half of a rerank pipeline, and two things here are built for it.
+
+**Ask for more than you need, then rerank the surplus.** A reranker is only as good as the
+candidates it is given, and the row you want is often just below the cut:
+
+```python
+results = search.search(query, embedding=vector, limit=50)      # retrieve wide
+pairs = [(query, r.get("content")) for r in results]
+scores = cross_encoder.predict(pairs)                            # your model
+top = [r for _, r in sorted(zip(scores, results), key=lambda p: -p[0])][:10]
+```
+
+**Use `explain` to choose the width.** Its near-miss band shows the rows just below your
+cut-off, so you can see whether retrieving 50 instead of 10 would actually have given the
+reranker anything to work with — rather than guessing at a number.
+
+```python
+report = explain(search, query, vector, limit=10, near_miss=40)
+```
+
+Two things worth knowing before you add one. Reranking `limit` rows cannot improve recall
+at all — it only reorders what retrieval already found, so the width is the whole lever.
+And a cross-encoder over 50 candidates is typically far slower than the search itself:
+measure the pair, not the parts.
 
 ## Coming from something else
 
