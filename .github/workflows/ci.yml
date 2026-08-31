@@ -135,6 +135,10 @@ jobs:
         run: |
           cd python && uv venv && uv pip install -e ".[dev]" && cd ..
           python/.venv/bin/python scripts/check_standalone_sql.py
+      # Sample output in a README rots quietly, and a reader who runs the command and
+      # sees something different stops trusting the rest of the page.
+      - name: README output still matches what the tool prints
+        run: python/.venv/bin/python scripts/check_readme_output.py
 
   gitleaks:
     name: secret scan

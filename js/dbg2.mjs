@@ -1,0 +1,10 @@
+import pg from "pg";
+const client = new pg.Client({ connectionString: "postgresql://postgres:pghybrid@localhost:55432/pghybrid" });
+await client.connect();
+const types = Object.assign([0, 701], { getTypeParser: pg.types.getTypeParser });
+const c = await client.query({ text: "SELECT $1 / ($2 + 2::bigint) AS score, now() AS t, 3::bigint AS b", values: [1, 60], types });
+console.log("zero+701:", c.rows[0], c.fields.map(f => f.dataTypeID));
+const types2 = Object.assign([701], { getTypeParser: pg.types.getTypeParser });
+const d = await client.query({ text: "SELECT $1 / ($2 + 2::bigint) AS score", values: [1, 60], types: types2 });
+console.log("prefix only $1 typed:", d.rows[0], d.fields[0].dataTypeID);
+await client.end();

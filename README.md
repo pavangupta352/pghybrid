@@ -128,16 +128,16 @@ document length and corpus statistics.
 `pghybrid explain` measures it on your own data, for both fusion methods at once:
 
 ```
-  effective weights · what each signal really controls
+  effective weights · the share of the score range each signal controls
 
-  fusion      signal   nominal     contribution range        span   effective
-  ───────────────────────────────────────────────────────────────────────────
-  rrf ▸       vector     70.0%      0.00972 … 0.01148     0.00175       71.7%
-              text       30.0%      0.00423 … 0.00492     0.00069       28.3%
-                    configured 70/30 → measured 72/28
-  weighted    vector     70.0%      0.06347 … 0.69214     0.62867       75.0%
-              text       30.0%      0.03000 … 0.24000     0.21000       25.0%
-                    configured 70/30 → measured 75/25
+  fusion      signal    rows  weight   nominal     contribution range       span  effective
+  ─────────────────────────────────────────────────────────────────────────────────────────
+  rrf ▸       vector   12/12     0.7     70.0%      0.00972 … 0.01148    0.00175      71.7%
+              text     12/12     0.3     30.0%      0.00423 … 0.00492    0.00069      28.3%
+              configured 70/30 → measured 72/28  ·  vector moves the score 2.5x further than text
+  weighted    vector   12/12     0.7     70.0%      0.06347 … 0.69214    0.62867      75.0%
+              text     12/12     0.3     30.0%      0.03000 … 0.24000    0.21000      25.0%
+              configured 70/30 → measured 75/25  ·  vector moves the score 3.0x further than text
 ```
 
 Reciprocal Rank Fusion combines **ranks**, which share a scale by construction, so the
@@ -149,7 +149,9 @@ score = Σ  weight / (k + rank)
 
 `k = 60` is from [Cormack, Clarke & Buettcher (2009)](https://dl.acm.org/doi/10.1145/1571941.1572114).
 
-That output is from the demo corpus, whose vectors are placed evenly by hand — which is
+That run uses a query whose terms reach every row, so both signals have full
+coverage (`12/12`) and the comparison is about scale alone. The corpus places its
+vectors evenly by hand — which is
 the *best* case for weighted fusion, and the gap is still visible. On real embeddings it
 is wider, because real cosine similarities bunch into a narrow band while `ts_rank_cd`
 does not. Do not take a number from this README; run `explain` on your own index, which
@@ -197,13 +199,13 @@ $ pghybrid explain "renewal notice period" --limit 4 --near-miss 3
   pghybrid explain · chunks
 
   query       "renewal notice period" · embedding 8 dims
-  fusion      rrf · k 60 · weights vector 1 / text 1
+  fusion      rrf · k 60 · weights vector 1.0 / text 1.0
   candidates  50 per signal → 12 fused · 12 by vector · 4 by text · 4 by both
   signals     cosine distance 0.01123 … 0.90933 · ts_rank_cd 0.10000 … 0.60000
   window      top 4 · near-miss band of 3
 
                                                      vector                     text             final
-       #  id  title                         rank  distance   contrib  rank  ts_rank_   contrib     score
+       #  id  title                         rank  distance   contrib  rank   ts_rank   contrib     score
   ──────────────────────────────────────────────────────────────────────────────────────────────────────
        1   2  Termination for convenience      2   0.03894   0.01613     2   0.30000   0.01613   0.03226
        2   7  Renewal pricing                  7   0.36285   0.01493     1   0.60000   0.01639   0.03132
