@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from .config import Config
 from .search import SearchResult, as_float, results_from_rows, row_mapping
@@ -72,13 +72,13 @@ class ExplainRow:
     label: str
     score: float
     fused_score: float
-    vector_rank: Optional[int]
-    vector_distance: Optional[float]
+    vector_rank: int | None
+    vector_distance: float | None
     vector_contribution: float
-    text_rank: Optional[int]
-    text_score: Optional[float]
+    text_rank: int | None
+    text_score: float | None
     text_contribution: float
-    recency_factor: Optional[float]
+    recency_factor: float | None
     #: True for rows ranked below ``limit`` but inside the near-miss band.
     near_miss: bool
     row: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
@@ -100,7 +100,7 @@ class SignalWeights:
     """What one signal's weighted term actually did to the ranking.
 
     ``span`` is the distance between the largest and smallest contribution this term
-    made across the candidate set. It is the only number that matters for ordering: a
+    made across the rows it retrieved. It is the number that matters for ordering: a
     term that is the same for every row cannot change anyone's position no matter how
     large its weight, and a term that swings widely decides the ranking no matter how
     small its weight.
@@ -110,15 +110,16 @@ class SignalWeights:
     weight: float
     #: ``weight / (vector weight + text weight)`` — the split the user thinks they set.
     nominal_share: float
-    #: How many of the fused candidates this signal actually retrieved. A span that
-    #: starts at zero always means the rest of them got nothing from this signal.
+    #: How many of the fused candidates this signal retrieved, and therefore how many
+    #: rows the span was measured over. The rest scored zero from this signal, which is
+    #: a larger jump than any difference within the span.
     matched: int
     low: float
     high: float
     span: float
     #: ``span / total span`` — the split they actually got. None when no candidate
     #: separated from any other, which makes the question meaningless rather than 50/50.
-    effective_share: Optional[float]
+    effective_share: float | None
 
 
 @dataclass(frozen=True)
@@ -132,7 +133,7 @@ class WeightReport:
     candidates: int
 
     @property
-    def distortion(self) -> Optional[float]:
+    def distortion(self) -> float | None:
         """How far the effective split sits from the configured one, 0.0 to 1.0.
 
         Zero means the weights do what they say. Under RRF this is small by
@@ -152,10 +153,10 @@ class CandidateStats:
     vector_matched: int
     text_matched: int
     both_matched: int
-    vector_distance_low: Optional[float] = None
-    vector_distance_high: Optional[float] = None
-    text_score_low: Optional[float] = None
-    text_score_high: Optional[float] = None
+    vector_distance_low: float | None = None
+    vector_distance_high: float | None = None
+    text_score_low: float | None = None
+    text_score_high: float | None = None
 
 
 @dataclass(frozen=True)
@@ -172,15 +173,15 @@ class FindReport:
     query: str
     found: bool
     id: Any = None
-    label: Optional[str] = None
+    label: str | None = None
     #: Position in the fused candidate list, or None if the query never retrieved it.
-    position: Optional[int] = None
+    position: int | None = None
     returned: bool = False
     near_miss: bool = False
-    vector_rank: Optional[int] = None
-    vector_distance: Optional[float] = None
-    text_rank: Optional[int] = None
-    text_score: Optional[float] = None
+    vector_rank: int | None = None
+    vector_distance: float | None = None
+    text_rank: int | None = None
+    text_score: float | None = None
     #: True when the row's vector column is NULL, which no amount of tuning will fix.
     embedding_missing: bool = False
     text_matches: bool = False
@@ -188,7 +189,7 @@ class FindReport:
     #: How many rows in the table contain the searched text.
     match_count: int = 0
     reason: str = ""
-    remedy: Optional[str] = None
+    remedy: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,8 +202,8 @@ class ExplainReport:
     """
 
     config: Config
-    query: Optional[str]
-    embedding_dimensions: Optional[int]
+    query: str | None
+    embedding_dimensions: int | None
     fusion: str
     limit: int
     near_miss: int
@@ -211,7 +212,7 @@ class ExplainReport:
     candidates: list[ExplainRow]
     stats: CandidateStats
     weights: Mapping[str, WeightReport]
-    find: Optional[FindReport]
+    find: FindReport | None
     label_column: str
     #: The statement that produced ``candidates``, ready to paste into psql.
     sql: str
@@ -232,7 +233,7 @@ class ExplainReport:
         """The weight measurement for the fusion method this query actually used."""
         return self.weights[self.fusion]
 
-    def row_for(self, identifier: Any) -> Optional[ExplainRow]:
+    def row_for(self, identifier: Any) -> ExplainRow | None:
         """The candidate with this id, or None if the query never retrieved it."""
         for row in self.candidates:
             if row.id == identifier:
@@ -263,31 +264,31 @@ class ExplainReport:
 @dataclass(frozen=True)
 class _Plan:
     config: Config
-    text: Optional[str]
-    embedding: Optional[list[float]]
-    filters: Optional[dict[str, Any]]
+    text: str | None
+    embedding: list[float] | None
+    filters: dict[str, Any] | None
     limit: int
     near_miss: int
     candidate_limit: int
     depth: int
     fusion: str
     label_column: str
-    find: Optional[str]
+    find: str | None
     queries: Mapping[str, tuple[str, list[Any]]]
 
 
 def _plan(
     search: Any,
-    text: Optional[str],
-    embedding: Optional[list[float]],
+    text: str | None,
+    embedding: list[float] | None,
     *,
     limit: int,
     near_miss: int,
-    filters: Optional[dict[str, Any]],
-    candidate_limit: Optional[int],
-    fusion: Optional[FusionMethod],
-    label_column: Optional[str],
-    find: Optional[str],
+    filters: dict[str, Any] | None,
+    candidate_limit: int | None,
+    fusion: FusionMethod | None,
+    label_column: str | None,
+    find: str | None,
     methods: Sequence[str] = FUSION_METHODS,
 ) -> _Plan:
     """Resolve the arguments and build the statements, without running anything."""
@@ -341,16 +342,16 @@ def _plan(
 
 def explain(
     search: HybridSearch,
-    text: Optional[str] = None,
-    embedding: Optional[list[float]] = None,
+    text: str | None = None,
+    embedding: list[float] | None = None,
     *,
     limit: int = 10,
     near_miss: int = 10,
-    filters: Optional[dict[str, Any]] = None,
-    candidate_limit: Optional[int] = None,
-    fusion: Optional[FusionMethod] = None,
-    label_column: Optional[str] = None,
-    find: Optional[str] = None,
+    filters: dict[str, Any] | None = None,
+    candidate_limit: int | None = None,
+    fusion: FusionMethod | None = None,
+    label_column: str | None = None,
+    find: str | None = None,
 ) -> ExplainReport:
     """Diagnose one hybrid search.
 
@@ -389,16 +390,16 @@ def explain(
 
 async def explain_async(
     search: AsyncHybridSearch,
-    text: Optional[str] = None,
-    embedding: Optional[list[float]] = None,
+    text: str | None = None,
+    embedding: list[float] | None = None,
     *,
     limit: int = 10,
     near_miss: int = 10,
-    filters: Optional[dict[str, Any]] = None,
-    candidate_limit: Optional[int] = None,
-    fusion: Optional[FusionMethod] = None,
-    label_column: Optional[str] = None,
-    find: Optional[str] = None,
+    filters: dict[str, Any] | None = None,
+    candidate_limit: int | None = None,
+    fusion: FusionMethod | None = None,
+    label_column: str | None = None,
+    find: str | None = None,
 ) -> ExplainReport:
     """:func:`explain` for an :class:`~pghybrid.search.AsyncHybridSearch`.
 
@@ -429,12 +430,12 @@ async def explain_async(
 
 def measure_weights(
     search: HybridSearch,
-    text: Optional[str] = None,
-    embedding: Optional[list[float]] = None,
+    text: str | None = None,
+    embedding: list[float] | None = None,
     *,
-    fusion: Optional[FusionMethod] = None,
-    filters: Optional[dict[str, Any]] = None,
-    candidate_limit: Optional[int] = None,
+    fusion: FusionMethod | None = None,
+    filters: dict[str, Any] | None = None,
+    candidate_limit: int | None = None,
 ) -> WeightReport:
     """Measure nominal against effective weights for one fusion method.
 
@@ -461,12 +462,12 @@ def measure_weights(
 
 async def measure_weights_async(
     search: AsyncHybridSearch,
-    text: Optional[str] = None,
-    embedding: Optional[list[float]] = None,
+    text: str | None = None,
+    embedding: list[float] | None = None,
     *,
-    fusion: Optional[FusionMethod] = None,
-    filters: Optional[dict[str, Any]] = None,
-    candidate_limit: Optional[int] = None,
+    fusion: FusionMethod | None = None,
+    filters: dict[str, Any] | None = None,
+    candidate_limit: int | None = None,
 ) -> WeightReport:
     """:func:`measure_weights` for an :class:`~pghybrid.search.AsyncHybridSearch`."""
     method = fusion or search.config.fusion
@@ -561,14 +562,21 @@ def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> Weigh
     what the query did, and a second implementation of the arithmetic would eventually
     disagree with the first.
 
-    Rows a signal never retrieved contribute zero from that signal. That zero is not an
-    absence to be filtered out — it is the value the fused score was built from, and
-    excluding it would understate exactly the swing that decides those rows' positions.
-    Whether a row matched the keywords at all is frequently the largest single term in
-    the ranking, and a measurement that dropped those rows would never show it.
+    Each span covers the rows that signal actually retrieved. Rows it did not retrieve
+    contribute a coalesced zero, and folding those zeros in would break the measurement
+    twice over: under RRF every span would collapse to ``weight / (k + 1)``, making the
+    effective share identically equal to the nominal one for every query ever run — a
+    tautology dressed up as a result — and under ``weighted`` fusion the reported range
+    would be the magnitude of the signal rather than its spread, which is the opposite
+    of the thing that decides an ordering. The zeros are still worth knowing about, so
+    :attr:`SignalWeights.matched` reports how many rows each span was measured over.
     """
-    vector_values = [result.vector_contribution for result in results]
-    text_values = [result.text_contribution for result in results]
+    vector_values = [
+        result.vector_contribution for result in results if result.vector_rank is not None
+    ]
+    text_values = [
+        result.text_contribution for result in results if result.text_rank is not None
+    ]
 
     vector_weight = float(cfg.weights.vector)
     text_weight = float(cfg.weights.text)
@@ -580,7 +588,7 @@ def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> Weigh
     text_span = text_high - text_low
     total_span = vector_span + text_span
 
-    def share(span: float) -> Optional[float]:
+    def share(span: float) -> float | None:
         # Every candidate scoring identically is a real state (one candidate, or a
         # degenerate query) and it has no answer, so say so instead of inventing 50/50.
         return None if total_span <= 0 else span / total_span
@@ -591,7 +599,7 @@ def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> Weigh
             signal="vector",
             weight=vector_weight,
             nominal_share=vector_weight / total_weight if total_weight else 0.0,
-            matched=sum(1 for result in results if result.vector_rank is not None),
+            matched=len(vector_values),
             low=vector_low,
             high=vector_high,
             span=vector_span,
@@ -601,7 +609,7 @@ def _measure(cfg: Config, fusion: str, results: Sequence[SearchResult]) -> Weigh
             signal="text",
             weight=text_weight,
             nominal_share=text_weight / total_weight if total_weight else 0.0,
-            matched=sum(1 for result in results if result.text_rank is not None),
+            matched=len(text_values),
             low=text_low,
             high=text_high,
             span=text_span,
@@ -641,7 +649,7 @@ def _assemble(plan: _Plan, raw: Mapping[str, list[SearchResult]]) -> ExplainRepo
     return _replace_find(report, _find_in_candidates(report, plan.find))
 
 
-def _replace_find(report: ExplainReport, finding: Optional[FindReport]) -> ExplainReport:
+def _replace_find(report: ExplainReport, finding: FindReport | None) -> ExplainReport:
     """Rebuild the frozen report with a find result attached."""
     return ExplainReport(
         config=report.config,
@@ -676,7 +684,7 @@ def _matches_text(row: ExplainRow, needle: str) -> bool:
     )
 
 
-def _find_in_candidates(report: ExplainReport, needle: str) -> Optional[FindReport]:
+def _find_in_candidates(report: ExplainReport, needle: str) -> FindReport | None:
     """Locate the expected text among the rows the query already returned.
 
     Checked before going back to the database, because the common case — the chunk was
@@ -891,17 +899,22 @@ def _with_find(report: ExplainReport, plan: _Plan, rows: Any) -> ExplainReport:
     passes_filters = bool(row.get("passes_filters"))
     match_count = int(row.get("match_count") or 1)
 
-    # A rank is only meaningful when the signal could produce one. Counting rows closer
-    # than a NULL distance yields zero, which would otherwise be reported as rank 1 for
-    # the one row that has no embedding at all — the exact opposite of the truth.
+    # A rank is only meaningful when the signal could produce one, and when the row is
+    # part of the population the rank was counted over. Both global ranks are counts of
+    # better rows *within the filters*, so a row the filters exclude would come back as
+    # rank 1 — the exact opposite of the truth — as would a row whose distance is NULL
+    # because it has no embedding.
+    rankable = passes_filters
     raw_vector_rank = row.get("global_vector_rank")
     vector_rank = (
         int(raw_vector_rank)
-        if raw_vector_rank is not None and not embedding_missing
+        if raw_vector_rank is not None and rankable and not embedding_missing
         else None
     )
     raw_text_rank = row.get("global_text_rank")
-    text_rank = int(raw_text_rank) if raw_text_rank is not None and text_matches else None
+    text_rank = (
+        int(raw_text_rank) if raw_text_rank is not None and rankable and text_matches else None
+    )
 
     reason, remedy = _diagnose(
         report,
@@ -944,9 +957,9 @@ def _diagnose(
     embedding_missing: bool,
     text_matches: bool,
     passes_filters: bool,
-    vector_rank: Optional[int],
-    text_rank: Optional[int],
-) -> tuple[str, Optional[str]]:
+    vector_rank: int | None,
+    text_rank: int | None,
+) -> tuple[str, str | None]:
     """Name the one reason the row is not in the result, and what to do about it.
 
     The distinction that matters is whether any signal could reach the row at all. A
@@ -969,16 +982,21 @@ def _diagnose(
 
     if not reachable:
         causes = []
-        remedy = "the row shares nothing with this query"
         if not queried_vector:
             causes.append("this query passed no embedding")
         elif embedding_missing:
             causes.append("the row has no embedding")
-            remedy = "backfill the vector column for this row"
         if not queried_text:
             causes.append("this query passed no text")
         elif not text_matches:
             causes.append("it matches no term in the query text")
+
+        if queried_vector and embedding_missing:
+            remedy = "backfill the vector column for this row"
+        elif not queried_vector:
+            remedy = "search with an embedding too; keywords alone cannot reach this row"
+        else:
+            remedy = "the row shares nothing with this query"
         return f"{row} is unreachable here: {' and '.join(causes)}", remedy
 
     ranks = [rank for rank in (vector_rank, text_rank) if rank is not None]
@@ -1038,7 +1056,7 @@ class _Col:
     group: str = ""
 
 
-def _num(value: Optional[float], null: str = "-") -> str:
+def _num(value: float | None, null: str = "-") -> str:
     """Fixed-width-friendly numbers.
 
     Five decimal places for the ordinary case, because RRF contributions differ in the
@@ -1060,7 +1078,7 @@ def _num(value: Optional[float], null: str = "-") -> str:
     return f"{number:.1f}"
 
 
-def _pct(value: Optional[float]) -> str:
+def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.1f}%"
 
 
@@ -1225,15 +1243,15 @@ def _render_table(report: ExplainReport, glyphs: Mapping[str, str], width: int) 
     null = glyphs["null"]
     found_id = report.find.id if report.find is not None and report.find.position else None
 
+    if not report.rows:
+        # Column headers over nothing read as a rendering fault rather than a result.
+        return [f"{_INDENT}no candidates: neither signal retrieved a row for this query"]
+
     lines = [
         _group_line(cols),
         _line([col.header for col in cols], cols, ellipsis),
         _rule(table_width, glyphs["rule"]),
     ]
-
-    if not report.rows:
-        lines.append(f"{_INDENT}no rows: neither signal retrieved anything for this query")
-        return lines
 
     last_band_rank = min(report.limit + report.near_miss, len(report.candidates))
     band = (
@@ -1345,22 +1363,6 @@ def _verdict(
     )
     line = f"configured {nominal} {glyphs['arrow']} measured {effective}"
 
-    # One explanatory clause, and coverage takes priority over scale: when a signal
-    # retrieved only some of the candidates, the gap between "matched" and "did not
-    # match" is most of its range, and reading that as a scale problem sends people to
-    # tune weights that were never the cause.
-    gaps = [
-        (measurement.candidates - signal.matched, signal)
-        for signal in (measurement.vector, measurement.text)
-        if signal.low == 0 and signal.span > 0 and signal.matched < measurement.candidates
-    ]
-    if gaps:
-        missing, signal = max(gaps, key=lambda pair: pair[0])
-        return (
-            f"{line}  {glyphs['dot']}  {missing} of {measurement.candidates} candidates "
-            f"get nothing from {signal.signal}"
-        )
-
     spans = sorted(
         ((measurement.vector.span, "vector"), (measurement.text.span, "text")), reverse=True
     )
@@ -1401,6 +1403,10 @@ def _render_find(report: ExplainReport, glyphs: Mapping[str, str]) -> list[str]:
         signals.append(detail)
     elif finding.embedding_missing:
         signals.append("no embedding")
+    elif finding.vector_distance is not None:
+        # Reached when the row is unranked for a reason that makes a rank meaningless,
+        # such as a filter excluding it; the distance is still worth seeing.
+        signals.append(f"distance {_num(finding.vector_distance)}")
     if finding.text_rank is not None:
         detail = f"#{finding.text_rank} by text"
         if finding.text_score is not None:
@@ -1408,6 +1414,8 @@ def _render_find(report: ExplainReport, glyphs: Mapping[str, str]) -> list[str]:
         signals.append(detail)
     elif not finding.text_matches:
         signals.append("no text match")
+    elif finding.text_score is not None:
+        signals.append(f"{report.config.rank_function} {_num(finding.text_score)}")
     if signals:
         lines.append(body + dot.join(signals))
     lines.append(f"{body}{finding.reason}")

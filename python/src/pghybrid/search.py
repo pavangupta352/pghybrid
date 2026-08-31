@@ -18,15 +18,15 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Iterable, Mapping
 from dataclasses import dataclass, field, fields
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Union
 
 from .config import Config
 from .sql import FusionMethod, build_search_sql
 
 #: What the caller's ``execute`` is expected to be. The row type is deliberately loose:
 #: anything dict-like survives :func:`row_mapping`.
-Executor = Callable[[str, list], Iterable[Any]]
-AsyncExecutor = Callable[[str, list], Awaitable[Iterable[Any]]]
+Executor = Callable[[str, list[Any]], Iterable[Any]]
+AsyncExecutor = Callable[[str, list[Any]], Awaitable[Iterable[Any]]]
 
 #: Columns the fused query always produces. Everything else in a row came from the
 #: user's table and is handed back untouched in :attr:`SearchResult.row`.
@@ -63,14 +63,14 @@ class SearchResult:
     id: Any
     score: float
     fused_score: float
-    vector_rank: Optional[int]
-    vector_distance: Optional[float]
+    vector_rank: int | None
+    vector_distance: float | None
     vector_contribution: float
-    text_rank: Optional[int]
-    text_score: Optional[float]
+    text_rank: int | None
+    text_score: float | None
     text_contribution: float
-    recency_factor: Optional[float] = None
-    highlight: Optional[str] = None
+    recency_factor: float | None = None
+    highlight: str | None = None
     #: The columns copied through from the table (``text_column`` plus
     #: ``extra_columns``). Excluded from equality and repr so that comparing two
     #: results compares their ranking, and printing one does not print a whole chunk.
@@ -135,7 +135,7 @@ def row_mapping(row: Any) -> Mapping[str, Any]:
     )
 
 
-def as_float(value: Any) -> Optional[float]:
+def as_float(value: Any) -> float | None:
     """Float conversion that passes NULL through instead of raising on it.
 
     Also normalises the ``Decimal`` some drivers return for ``numeric``, so a caller
@@ -148,7 +148,7 @@ def as_float(value: Any) -> Optional[float]:
     return float(value)
 
 
-def _as_int(value: Any) -> Optional[int]:
+def _as_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
@@ -200,7 +200,7 @@ def results_from_rows(rows: Iterable[Any]) -> list[SearchResult]:
     return [result_from_row(row) for row in rows]
 
 
-def _normalise_text(text: Optional[str]) -> Optional[str]:
+def _normalise_text(text: str | None) -> str | None:
     """Treat a blank search box as no text signal at all.
 
     An empty tsquery matches nothing, so passing ``""`` through would build a text CTE
@@ -231,16 +231,16 @@ class _SearchBase:
 
     def build_sql(
         self,
-        text: Optional[str] = None,
-        embedding: Optional[list[float]] = None,
+        text: str | None = None,
+        embedding: list[float] | None = None,
         *,
         limit: int = 10,
         offset: int = 0,
-        filters: Optional[dict[str, Any]] = None,
-        candidate_limit: Optional[int] = None,
+        filters: dict[str, Any] | None = None,
+        candidate_limit: int | None = None,
         near_miss: int = 0,
         highlight: bool = False,
-        fusion: Optional[FusionMethod] = None,
+        fusion: FusionMethod | None = None,
     ) -> tuple[str, list[Any]]:
         """The statement :meth:`search` would run, without running it.
 
@@ -275,15 +275,15 @@ class HybridSearch(_SearchBase):
 
     def search(
         self,
-        text: Optional[str] = None,
-        embedding: Optional[list[float]] = None,
+        text: str | None = None,
+        embedding: list[float] | None = None,
         *,
         limit: int = 10,
         offset: int = 0,
-        filters: Optional[dict[str, Any]] = None,
-        candidate_limit: Optional[int] = None,
+        filters: dict[str, Any] | None = None,
+        candidate_limit: int | None = None,
         highlight: bool = False,
-        fusion: Optional[FusionMethod] = None,
+        fusion: FusionMethod | None = None,
     ) -> list[SearchResult]:
         """Rank rows by both signals at once.
 
@@ -303,7 +303,7 @@ class HybridSearch(_SearchBase):
         )
         return results_from_rows(self.execute(sql, params))
 
-    def explain(self, text: Optional[str] = None, embedding: Optional[list[float]] = None, **kwargs: Any) -> Any:
+    def explain(self, text: str | None = None, embedding: list[float] | None = None, **kwargs: Any) -> Any:
         """Diagnose one query. See :func:`pghybrid.explain.explain` for the arguments."""
         # Imported here rather than at module scope so the dependency runs one way:
         # the diagnostic layer is allowed to know about the runtime, not the reverse.
@@ -313,10 +313,10 @@ class HybridSearch(_SearchBase):
 
     def effective_weights(
         self,
-        text: Optional[str] = None,
-        embedding: Optional[list[float]] = None,
+        text: str | None = None,
+        embedding: list[float] | None = None,
         *,
-        fusion: Optional[FusionMethod] = None,
+        fusion: FusionMethod | None = None,
         **kwargs: Any,
     ) -> Any:
         """Measure what the configured weights actually do to this query.
@@ -342,15 +342,15 @@ class AsyncHybridSearch(_SearchBase):
 
     async def search(
         self,
-        text: Optional[str] = None,
-        embedding: Optional[list[float]] = None,
+        text: str | None = None,
+        embedding: list[float] | None = None,
         *,
         limit: int = 10,
         offset: int = 0,
-        filters: Optional[dict[str, Any]] = None,
-        candidate_limit: Optional[int] = None,
+        filters: dict[str, Any] | None = None,
+        candidate_limit: int | None = None,
         highlight: bool = False,
-        fusion: Optional[FusionMethod] = None,
+        fusion: FusionMethod | None = None,
     ) -> list[SearchResult]:
         """Await the query and return the same :class:`SearchResult` list as the sync client."""
         sql, params = self.build_sql(
@@ -366,7 +366,7 @@ class AsyncHybridSearch(_SearchBase):
         return results_from_rows(await self.execute(sql, params))
 
     async def explain(
-        self, text: Optional[str] = None, embedding: Optional[list[float]] = None, **kwargs: Any
+        self, text: str | None = None, embedding: list[float] | None = None, **kwargs: Any
     ) -> Any:
         """Diagnose one query. See :func:`pghybrid.explain.explain_async`."""
         from .explain import explain_async
@@ -375,10 +375,10 @@ class AsyncHybridSearch(_SearchBase):
 
     async def effective_weights(
         self,
-        text: Optional[str] = None,
-        embedding: Optional[list[float]] = None,
+        text: str | None = None,
+        embedding: list[float] | None = None,
         *,
-        fusion: Optional[FusionMethod] = None,
+        fusion: FusionMethod | None = None,
         **kwargs: Any,
     ) -> Any:
         """Await the weight measurement described in :meth:`HybridSearch.effective_weights`."""

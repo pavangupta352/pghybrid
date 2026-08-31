@@ -23,7 +23,7 @@ import inspect
 import math
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 from .config import METRICS, Config, Metric
 from .sql import quote_ident
@@ -350,6 +350,21 @@ class Statement:
 # ------------------------------------------------------------------------ execution
 
 
+def _positional(row: Any) -> Any:
+    """Return a row as a positional sequence, whatever shape the driver produced.
+
+    Introspection unpacks its rows by position. A driver configured to return mappings
+    — ``psycopg.rows.dict_row``, ``RealDictCursor``, SQLAlchemy's ``RowMapping`` — would
+    otherwise unpack into column *names*, so the queried relkind would come back as the
+    string "relkind" and the failure would be reported as an unsupported table type.
+    Mapping order matches the SELECT list in every driver that offers this, which is
+    what makes the conversion safe.
+    """
+    if isinstance(row, Mapping):
+        return tuple(row.values())
+    return row
+
+
 class Executor:
     """Adapts a caller-supplied ``execute`` callable to the shape this module wants.
 
@@ -384,7 +399,7 @@ class Executor:
                     "and its values cannot be inlined safely."
                 )
             rows = self._execute(sql, params)
-        return list(rows or [])
+        return [_positional(row) for row in (rows or [])]
 
     def scalar(self, sql: str, params: Optional[Sequence[Any]] = None) -> Any:
         rows = self(sql, params)
@@ -422,8 +437,29 @@ def dbapi_executor(connection: Any) -> Execute:
     promise of zero runtime dependencies while still being one line to use.
     """
 
+    def open_cursor() -> Any:
+        """A cursor that yields positional rows, whatever the connection's default is.
+
+        Introspection unpacks its rows by position, and the catalog queries below
+        legitimately select two columns with the same underlying name. A connection
+        configured for mapping rows — ``psycopg.rows.dict_row`` and its equivalents are
+        common — would collapse that pair into one key and hand back a row one column
+        short. Asking for positional rows here is cheaper than aliasing every column in
+        every catalog query and hoping nobody adds a colliding one later.
+        """
+        try:
+            from psycopg.rows import tuple_row
+        except ModuleNotFoundError:
+            return connection.cursor()
+        try:
+            return connection.cursor(row_factory=tuple_row)
+        except TypeError:
+            # psycopg2 and other DB-API drivers take no row_factory; their default
+            # cursor already returns tuples.
+            return connection.cursor()
+
     def execute(sql: str, params: Optional[Sequence[Any]] = None) -> list[Row]:
-        with connection.cursor() as cursor:
+        with open_cursor() as cursor:
             # An empty sequence is normalised to None because psycopg treats any
             # non-None params as a request to interpolate, and a statement containing
             # a literal percent sign then fails for no visible reason.
@@ -574,16 +610,23 @@ def _read_columns(run: Executor, oid: int) -> list[ColumnInfo]:
 
 def _read_indexes(run: Executor, oid: int) -> list[IndexInfo]:
     rows = run(
-        "SELECT i.relname, am.amname, pg_catalog.pg_get_indexdef(i.oid), "
-        "       pg_catalog.pg_relation_size(i.oid)::bigint, "
-        "       x.indisvalid, x.indisprimary, x.indisunique, i.reloptions, "
-        "       pg_catalog.pg_get_expr(x.indpred, x.indrelid), "
+        # Every column is aliased. Two of these are array_agg subqueries, and a driver
+        # returning mapping rows would collapse the pair into one key, so the row would
+        # arrive one column short of what this unpacks.
+        "SELECT i.relname AS index_name, am.amname AS method, "
+        "       pg_catalog.pg_get_indexdef(i.oid) AS definition, "
+        "       pg_catalog.pg_relation_size(i.oid)::bigint AS size_bytes, "
+        "       x.indisvalid AS is_valid, x.indisprimary AS is_primary, "
+        "       x.indisunique AS is_unique, i.reloptions AS options, "
+        "       pg_catalog.pg_get_expr(x.indpred, x.indrelid) AS predicate, "
         "       (SELECT array_agg(pg_catalog.pg_get_indexdef(i.oid, k.ord::int, true) "
         "               ORDER BY k.ord) "
-        "          FROM generate_series(1, x.indnkeyatts) WITH ORDINALITY AS k(n, ord)), "
+        "          FROM generate_series(1, x.indnkeyatts) WITH ORDINALITY AS k(n, ord)"
+        "       ) AS keys, "
         "       (SELECT array_agg(o.opcname ORDER BY k.ord) "
         "          FROM unnest(x.indclass::oid[]) WITH ORDINALITY AS k(cls, ord) "
-        "          JOIN pg_catalog.pg_opclass o ON o.oid = k.cls) "
+        "          JOIN pg_catalog.pg_opclass o ON o.oid = k.cls"
+        "       ) AS opclasses "
         "FROM pg_catalog.pg_index x "
         "JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid "
         "JOIN pg_catalog.pg_am am ON am.oid = i.relam "

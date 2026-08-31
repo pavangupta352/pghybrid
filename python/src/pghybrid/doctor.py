@@ -279,9 +279,29 @@ def doctor(
         _measure_filtered(report, probe, vectors, k, exact_ok, gucs)
 
     report.recommendations = _recommendations(report)
+    for message in probe.errors:
+        report.findings.append(Finding("warn", "probe did not complete", message))
+    report.findings = _dedupe(report.findings)
     report.findings.sort(key=lambda f: _LEVEL_ORDER.get(f.level, 9))
     report.duration_ms = (time.perf_counter() - started) * 1000.0
     return report
+
+
+def _dedupe(findings: Sequence[Finding]) -> list[Finding]:
+    """One line per problem.
+
+    The same failure is reached from several probes -- a dropped table breaks the
+    unfiltered measurement and every filtered one -- and repeating it makes the report
+    look like several problems instead of one.
+    """
+    seen: set = set()
+    unique: list[Finding] = []
+    for finding in findings:
+        key = (finding.level, finding.title, finding.detail)
+        if key not in seen:
+            seen.add(key)
+            unique.append(finding)
+    return unique
 
 
 # ------------------------------------------------------------------------- probing
@@ -833,11 +853,13 @@ class _Prober:
             return probes
 
         for column in self.config.filter_columns[:2]:
-            if self.info.column(column) is None:
+            info_column = self.info.column(column)
+            if info_column is None:
                 continue
             value, source = self._common_value(column)
             if value is None:
                 continue
+            value = _coerce(value, info_column.type_name)
             literal = _literal_value(value)
             if literal is None:
                 continue
@@ -1059,15 +1081,16 @@ def _check_recall(report: DoctorReport) -> None:
     if result.recall < BAD_RECALL:
         level = "error"
         detail = (
-            f"The index is losing most of the right answers: about {missed:.1f} of "
-            f"every {result.k} results are not among the true nearest neighbours."
+            f"About {missed:.1f} of every {result.k} results are not among the true "
+            "nearest neighbours. At this level the wrong answer is often the one on "
+            "screen, and no amount of prompt engineering downstream recovers it."
         )
     elif result.recall < POOR_RECALL:
         level = "warn"
         detail = (
             f"About {missed:.1f} of every {result.k} results are not among the true "
-            "nearest neighbours. That is the kind of gap users describe as 'search "
-            "sometimes misses the obvious one'."
+            "nearest neighbours. That is the gap users describe as 'search sometimes "
+            "misses the obvious one'."
         )
     else:
         level = "ok"
@@ -1157,33 +1180,46 @@ def _measure_filtered(
                     f"WHERE {filter_probe.predicate}",
                 )
             )
-        elif result.recall < POOR_RECALL:
-            report.findings.append(
-                Finding(
-                    "error" if result.recall < BAD_RECALL else "warn",
-                    f"filtered recall@{k} collapses to {result.recall:.2f} on "
-                    f"{filter_probe.predicate}",
-                    "The index searches first and the filter is applied to what comes "
-                    "back, so a selective filter throws away most of the candidates "
-                    "before they can be returned.",
-                    fix=f"SET {index.method if index else 'hnsw'}.iterative_scan = "
-                    "relaxed_order;"
-                    if supports_iterative
-                    else "Upgrade to pgvector 0.8 for iterative scans, or build a "
-                    "partial index per filter value.",
+        else:
+            # The comparison that matters is against unfiltered recall on the same
+            # index, not against 1.0. A filter that leaves recall where it already was
+            # is not the problem; reporting it as one buries the filter that is.
+            baseline_recall = report.recall.recall if report.recall else 1.0
+            lost = baseline_recall - result.recall
+            if lost > 0.05 and result.recall < POOR_RECALL:
+                selectivity = (
+                    f" keeps {filter_probe.selectivity:.1%} of the table and"
+                    if filter_probe.selectivity is not None
+                    else ""
                 )
-            )
+                report.findings.append(
+                    Finding(
+                        "error" if result.recall < BAD_RECALL else "warn",
+                        f"filtering on {filter_probe.predicate} drops recall@{k} from "
+                        f"{baseline_recall:.2f} to {result.recall:.2f}",
+                        f"{filter_probe.predicate}{selectivity} costs {lost:.2f} of "
+                        "recall. The index searches first and the filter is applied to "
+                        "whatever it returned, so a selective filter throws most of the "
+                        "candidates away before they can be results.",
+                        fix=f"SET {index.method if index else 'hnsw'}.iterative_scan = "
+                        "relaxed_order;"
+                        if supports_iterative
+                        else "Upgrade to pgvector 0.8 for iterative scans, or build a "
+                        f"partial index WHERE {filter_probe.predicate}.",
+                    )
+                )
 
     measured = None
     baseline = worst
+    unfiltered = report.recall.recall if report.recall else 1.0
     if (
         iterative_guc is not None
         and worst is not None
-        and worst.recall < POOR_RECALL
         and worst.used_vector_index
+        and unfiltered - worst.recall > 0.05
     ):
-        # Measure the fix rather than recommending it on faith: the difference is the
-        # single most useful number this report produces for a multi-tenant table.
+        # Measure the fix rather than recommending it on faith: the before-and-after is
+        # the single most useful number this report produces for a multi-tenant table.
         target = next(
             (f for f in report.filters if f.predicate in worst.label), report.filters[0]
         )
@@ -1193,7 +1229,7 @@ def _measure_filtered(
             vectors,
             truth,
             k,
-            label=f"{iterative_guc} = relaxed_order",
+            label=f"{target.predicate} with {iterative_guc} = relaxed_order",
             predicate=predicate,
             settings=[f"{iterative_guc} = relaxed_order"],
         )
@@ -1285,25 +1321,34 @@ def _render_report(report: DoctorReport, *, width: int = 78) -> str:
         )
 
     if report.filtered:
-        out += ["", "FILTERED RECALL", thin]
-        for result in report.filtered:
-            used = (
+        heading = "FILTERED RECALL"
+        if report.recall is not None:
+            heading += (
+                f"  (unfiltered recall@{report.k} was {report.recall.recall:.2f})"
+            )
+        out += ["", heading, thin]
+        rows: list[tuple[str, RecallResult, str]] = [
+            (
+                result.label,
+                result,
                 "index used"
                 if result.used_vector_index
                 else "index NOT used, results exact"
                 if result.used_vector_index is False
-                else "plan unknown"
+                else "plan unknown",
             )
-            out.append(
-                f"  {result.label:<44}{result.recall:>6.2f}   {result.timing.p50_ms:>6.2f} ms"
-                f"   {used}"
-            )
+            for result in report.filtered
+        ]
         if report.iterative is not None and report.iterative.measured is not None:
             measured = report.iterative.measured
+            rows.append((measured.label, measured, "pgvector 0.8 iterative scan"))
+        label_width = min(max(len(label) for label, _, _ in rows), width - 34)
+        for label, result, used in rows:
             out.append(
-                f"  {measured.label:<44}{measured.recall:>6.2f}   "
-                f"{measured.timing.p50_ms:>6.2f} ms   pgvector 0.8 iterative scan"
+                f"  {label.ljust(label_width)}  {result.recall:>5.2f}   "
+                f"{result.timing.p50_ms:>6.2f} ms   {used}"
             )
+        out.append("")
         for probe in report.filters:
             selectivity = (
                 f"{probe.selectivity:.1%} of rows" if probe.selectivity is not None else "unknown"
@@ -1312,13 +1357,13 @@ def _render_report(report: DoctorReport, *, width: int = 78) -> str:
 
     if report.plans:
         out += ["", "PLANS", thin]
-        label_width = max(len(p.label) for p in report.plans)
         for plan in report.plans:
-            marker = "" if plan.used_vector_index else "   <- vector index not used"
-            if plan.error:
-                out.append(f"  {plan.label.ljust(label_width)}   {plan.error}")
-                continue
-            out.append(f"  {plan.label.ljust(label_width)}   {plan.scan}{marker}")
+            out.append(f"  {plan.label}")
+            body = plan.error or plan.scan
+            for line in _wrap(body, width - 6):
+                out.append(f"      {line}")
+            if not plan.used_vector_index and not plan.error:
+                out.append("      ^ the vector index is not used in this shape")
 
     if report.findings:
         out += ["", "FINDINGS", thin]
@@ -1338,9 +1383,12 @@ def _render_report(report: DoctorReport, *, width: int = 78) -> str:
         for statement in required:
             out += ["  " + line for line in statement.to_text().splitlines()]
             out.append("")
-        for statement in optional:
-            out += ["  " + line for line in statement.to_text().splitlines()]
+        if optional:
+            out.append("  Options and alternatives. None of these are required.")
             out.append("")
+            for statement in optional:
+                out += ["  " + line for line in statement.to_text().splitlines()]
+                out.append("")
 
     out.append(
         f"read-only: {'yes' if report.read_only else 'no (ANALYZE was allowed)'}   "
@@ -1427,6 +1475,26 @@ def _vector_literal(value: Any) -> Optional[str]:
         # else did not come from pgvector and is not going into a statement.
         return None
     return f"'{text}'"
+
+
+#: Types whose values read wrong when they come back as quoted text.
+_NUMERIC_TYPES = frozenset({"int2", "int4", "int8", "float4", "float8", "numeric", "oid"})
+
+
+def _coerce(value: Any, type_name: str) -> Any:
+    """Turn a filter value read as text back into a number where the column is numeric.
+
+    pg_stats returns most-common values as text whatever the column type. Postgres will
+    coerce ``tenant_id = '4'`` happily, but the report prints these predicates and
+    ``tenant_id = '4'`` reads like a bug in the tool rather than a description of the
+    query someone actually runs.
+    """
+    if not isinstance(value, str) or type_name not in _NUMERIC_TYPES:
+        return value
+    try:
+        return int(value) if type_name in ("int2", "int4", "int8", "oid") else float(value)
+    except ValueError:
+        return value
 
 
 def _literal_value(value: Any) -> Optional[str]:
